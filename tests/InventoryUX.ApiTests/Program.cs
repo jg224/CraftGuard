@@ -48,6 +48,8 @@ namespace InventoryUX.ApiTests
                 RequireProperty(module, "InventoryGui/RecipeDataPair", "Recipe");
                 RequireProperty(module, "InventoryGui/RecipeDataPair", "InterfaceElement");
                 RequireMethod(module, "Player", "IsRecipeKnown", 1);
+                RequireField(module, "Player", "m_buildPieces");
+                RequireMethod(module, "Player", "UpdateAvailablePiecesList", 0);
                 RequireField(module, "ItemDrop/ItemData/SharedData", "m_food");
                 RequireField(module, "ItemDrop/ItemData/SharedData", "m_foodStamina");
                 RequireField(module, "ItemDrop/ItemData/SharedData", "m_foodEitr");

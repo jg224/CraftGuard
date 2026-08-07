@@ -26,6 +26,8 @@ namespace InventoryUX.CoreTests
                 ShelfPlannerNeverOverflowsSupportedLayouts,
                 HammerTabsSortEarlyToLateWithoutAlphabeticalFallback,
                 HammerFamiliesAndVariantsStayCoherent,
+                MiscTravelUsesRequestedProgression,
+                MiscDefensePinsRoundpoleFirstAndShieldGeneratorLast,
                 SeasonalHammerPiecesSortAfterNormalProgression
             };
 
@@ -277,6 +279,39 @@ namespace InventoryUX.CoreTests
 
             Equal(true, ashlands.CompareTo(special) < 0, "Normal progression before special");
             Equal(true, special.CompareTo(seasonal) < 0, "Special before seasonal");
+        }
+
+        private static void MiscTravelUsesRequestedProgression()
+        {
+            string[] pieces =
+            {
+                "Cart",
+                "Raft",
+                "Karve",
+                "Longship",
+                "Drakkar",
+                "Portal"
+            };
+
+            for (int i = 1; i < pieces.Length; i++)
+            {
+                int previous = HammerProgressionSorter.MiscTravelOrder(pieces[i - 1]);
+                int current = HammerProgressionSorter.MiscTravelOrder(pieces[i]);
+                Equal(true, previous < current, $"{pieces[i - 1]} before {pieces[i]}");
+            }
+
+            Equal(-1, HammerProgressionSorter.MiscTravelOrder("Cartography Table"),
+                "Cartography Table must not be classified as Travel");
+        }
+
+        private static void MiscDefensePinsRoundpoleFirstAndShieldGeneratorLast()
+        {
+            int roundpole = HammerProgressionSorter.MiscDefenseOrder("piece_wood_fence");
+            int palisade = HammerProgressionSorter.MiscDefenseOrder("piece_palisade");
+            int shieldGenerator = HammerProgressionSorter.MiscDefenseOrder("piece_shield_generator");
+
+            Equal(true, roundpole < palisade, "Roundpole Fence before other Defense pieces");
+            Equal(true, palisade < shieldGenerator, "Shield Generator after other Defense pieces");
         }
 
         private static RecipeGroup Group(Row row) => RecipeClassifier.GetEquipmentGroup(row.Facts, EquipmentGroupingMode.Biome);

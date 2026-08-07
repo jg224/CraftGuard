@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 - 2026-08-07
+
+- Places the native `Q` previous-category control in the open header space immediately left of Misc.
+- Adds persistent `Default View` and `Mod View` buttons beneath Repair, rebuilding the live Hammer list when switching so visuals, hover, and selection stay aligned.
+- Orders Misc Travel as Cart, Raft, Karve, Longship, Drakkar, and Portal; moves the Cartography Table to Utility and uses it as that section's icon; places Roundpole Fence first and Shield Generator last in Defense.
+
 ## 0.1.0 - 2026-08-07
 
 Initial public release of CraftGuard, renamed from the private InventoryUX development builds.

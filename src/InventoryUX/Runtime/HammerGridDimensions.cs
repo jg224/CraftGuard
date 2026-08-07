@@ -27,7 +27,7 @@ namespace InventoryUX.Runtime
         private static RectState? _windowState;
         private static RectState? _maskState;
         private static RectState? _categoryState;
-        private static RectState? _previousCategoryControlState;
+        private static ReparentedRectState? _previousCategoryControlState;
 
         internal static float RepairRailWidth { get; private set; }
 
@@ -72,7 +72,7 @@ namespace InventoryUX.Runtime
                 categoryRoot.anchoredPosition += new Vector2(
                     RepairRailWidth * (1f - categoryRoot.pivot.x),
                     0f);
-                MovePreviousCategoryControl(categoryRoot, RepairRailWidth);
+                MovePreviousCategoryControl(categoryRoot, window, RepairRailWidth);
             }
 
             _hudInstanceId = hudInstanceId;
@@ -92,23 +92,33 @@ namespace InventoryUX.Runtime
             RepairRailWidth = 0f;
         }
 
-        private static void MovePreviousCategoryControl(RectTransform categoryRoot, float offset)
+        private static void MovePreviousCategoryControl(
+            RectTransform categoryRoot,
+            RectTransform? window,
+            float repairRailWidth)
         {
-            RectTransform? control = FindTopLevelControl(categoryRoot, "Q");
+            if (window == null) return;
+            RectTransform? control = FindInteractiveControl(categoryRoot, "Q")
+                ?? FindInteractiveControl(window, "Q");
             if (control == null) return;
 
-            _previousCategoryControlState = new RectState(control);
-            control.anchoredPosition += new Vector2(offset, 0f);
+            _previousCategoryControlState = new ReparentedRectState(control);
+            control.SetParent(window, false);
+            control.SetAsLastSibling();
+            control.anchorMin = new Vector2(0f, 1f);
+            control.anchorMax = new Vector2(0f, 1f);
+            control.pivot = new Vector2(0f, 1f);
+            control.anchoredPosition = new Vector2(repairRailWidth + 42f, -18f);
         }
 
-        private static RectTransform? FindTopLevelControl(RectTransform root, string displayedText)
+        private static RectTransform? FindInteractiveControl(RectTransform root, string displayedText)
         {
             TextMeshProUGUI[] tmpLabels = root.GetComponentsInChildren<TextMeshProUGUI>(true);
             for (int i = 0; i < tmpLabels.Length; i++)
             {
                 if (string.Equals(tmpLabels[i].text?.Trim(), displayedText, System.StringComparison.OrdinalIgnoreCase))
                 {
-                    return TopLevelChild(root, tmpLabels[i].transform);
+                    return InteractiveAncestor(root, tmpLabels[i].transform);
                 }
             }
 
@@ -117,10 +127,25 @@ namespace InventoryUX.Runtime
             {
                 if (string.Equals(labels[i].text?.Trim(), displayedText, System.StringComparison.OrdinalIgnoreCase))
                 {
-                    return TopLevelChild(root, labels[i].transform);
+                    return InteractiveAncestor(root, labels[i].transform);
                 }
             }
             return null;
+        }
+
+        private static RectTransform? InteractiveAncestor(RectTransform root, Transform child)
+        {
+            Transform current = child;
+            while (current != root && current.parent != null)
+            {
+                if (current.GetComponent<UIInputHandler>() != null
+                    || current.GetComponent<Button>() != null)
+                {
+                    return current as RectTransform;
+                }
+                current = current.parent;
+            }
+            return TopLevelChild(root, child);
         }
 
         private static RectTransform? TopLevelChild(RectTransform root, Transform child)
@@ -162,6 +187,42 @@ namespace InventoryUX.Runtime
             internal void Restore()
             {
                 if (_rect == null) return;
+                _rect.sizeDelta = _sizeDelta;
+                _rect.anchoredPosition = _anchoredPosition;
+            }
+        }
+
+        private sealed class ReparentedRectState
+        {
+            private readonly RectTransform _rect;
+            private readonly Transform _parent;
+            private readonly int _siblingIndex;
+            private readonly Vector2 _anchorMin;
+            private readonly Vector2 _anchorMax;
+            private readonly Vector2 _pivot;
+            private readonly Vector2 _sizeDelta;
+            private readonly Vector2 _anchoredPosition;
+
+            internal ReparentedRectState(RectTransform rect)
+            {
+                _rect = rect;
+                _parent = rect.parent;
+                _siblingIndex = rect.GetSiblingIndex();
+                _anchorMin = rect.anchorMin;
+                _anchorMax = rect.anchorMax;
+                _pivot = rect.pivot;
+                _sizeDelta = rect.sizeDelta;
+                _anchoredPosition = rect.anchoredPosition;
+            }
+
+            internal void Restore()
+            {
+                if (_rect == null || _parent == null) return;
+                _rect.SetParent(_parent, false);
+                _rect.SetSiblingIndex(Mathf.Min(_siblingIndex, _parent.childCount - 1));
+                _rect.anchorMin = _anchorMin;
+                _rect.anchorMax = _anchorMax;
+                _rect.pivot = _pivot;
                 _rect.sizeDelta = _sizeDelta;
                 _rect.anchoredPosition = _anchoredPosition;
             }

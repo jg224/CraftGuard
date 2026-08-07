@@ -18,6 +18,7 @@ CraftGuard is a client-side Valheim mod that turns crowded Hammer and crafting m
 ## Highlights
 
 - Organizes every Hammer tab with inset category cards, restrained dividers, native hover feedback, and reliable mouse/controller selection.
+- Adds fixed `Default View` and `Mod View` controls beneath Repair for switching between Valheim's native Hammer order and CraftGuard's organized layout.
 - Groups Crafting into Workbench, Forge, Cooking, Advanced, Processing, and Utility workflows.
 - Groups Misc. into Travel, Fire / Comfort, Defense, Siege, Resources, and Utility.
 - Groups Building by Wood, Core Wood, Darkwood, and Ashwood, with natural beam, floor, wall, roof, and utility ordering.
@@ -38,7 +39,7 @@ Install [224-CraftGuard](https://thunderstore.io/c/valheim/p/224/CraftGuard/) wi
 ### Manual
 
 1. Install BepInEx 5 for the Valheim client.
-2. Download `CraftGuard-0.1.0.zip` from the [latest release](https://github.com/jg224/CraftGuard/releases/latest).
+2. Download `CraftGuard-0.1.1.zip` from the [latest release](https://github.com/jg224/CraftGuard/releases/latest).
 3. Remove an older `InventoryUX.dll` if one is installed.
 4. Extract `CraftGuard.dll` into `Valheim/BepInEx/plugins/CraftGuard/`.
 5. Start Valheim.
