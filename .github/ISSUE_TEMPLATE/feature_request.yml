@@ -1,0 +1,24 @@
+name: Feature request
+description: Suggest an organization or interface improvement
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the affected tab or crafting station and the preferred grouping/order.
+    validations:
+      required: true
+  - type: textarea
+    id: mockup
+    attributes:
+      label: Reference image or mockup
+      description: Drag in an image if the request is visual.

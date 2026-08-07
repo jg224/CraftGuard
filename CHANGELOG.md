@@ -1,0 +1,30 @@
+# Changelog
+
+## 0.1.0 - 2026-08-07
+
+Initial public release of CraftGuard, renamed from the private InventoryUX development builds.
+
+### Hammer menu
+
+- Adds organized, progression-aware layouts to Misc., Crafting, Building, Heavy Build, and Furniture.
+- Uses compact inset category cards, subtle dividers, native hover feedback, and corrected hit targets.
+- Keeps Repair static and outside dynamic sorting.
+- Adds optional outlined Hammer piece names, disabled by default.
+- Caches menu decoration work to avoid frame loss while organized tabs are open.
+
+### Crafting stations
+
+- Adds fixed `Default`, `Type`/`Stat`, and `Biome` view controls.
+- Adds recipe search with a clear button.
+- Groups equipment by type and biome.
+- Groups meals by nutrition and shows readable HP, Stamina, and Eitr values.
+- Resolves doughs, uncooked pies, feasts, and other prepared foods through their live final edible item.
+- Groups Mead Ketill recipes as HP, Stamina, or Utility.
+- Removes inappropriate station-upgrade copy from food and equipment recipe details.
+
+### Safety and compatibility
+
+- Organizes only Hammer pieces and recipes already exposed by Valheim.
+- Leaves recipes, costs, unlocks, saves, worlds, and multiplayer state unchanged.
+- Preserves modded content through fallback groups.
+- Retains the legacy `com.inventoryux.valheim` plugin identifier so existing settings migrate automatically.

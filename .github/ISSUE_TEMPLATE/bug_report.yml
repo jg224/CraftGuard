@@ -1,0 +1,48 @@
+name: Bug report
+description: Report a CraftGuard crash, layout issue, or compatibility problem
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to report a problem.
+  - type: input
+    id: version
+    attributes:
+      label: CraftGuard version
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: valheim
+    attributes:
+      label: Valheim version
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Include the affected Hammer tab or crafting station and what you expected to see.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Open ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: mods
+    attributes:
+      label: Other installed UI or crafting mods
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Log and screenshots
+      description: Drag in the BepInEx log and any useful screenshots.

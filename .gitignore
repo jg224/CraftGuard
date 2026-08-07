@@ -1,0 +1,21 @@
+# Build outputs
+**/bin/
+**/obj/
+dist/
+
+# Local game references and logs
+BepInEx/
+*.log
+*.pdb
+
+# IDE and OS files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+
+# Local research material
+design-docs/
