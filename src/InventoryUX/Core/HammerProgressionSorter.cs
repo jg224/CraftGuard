@@ -39,6 +39,28 @@ namespace InventoryUX.Core
 
     internal static class HammerProgressionSorter
     {
+        internal static int MiscTravelOrder(string itemId)
+        {
+            string id = Normalize(itemId);
+            if (ContainsAny(id, "cartography", "maptable")) return -1;
+            if (id.Contains("cart")) return 0;
+            if (id.Contains("raft")) return 10;
+            if (id.Contains("karve")) return 20;
+            if (id.Contains("longship")) return 30;
+            if (ContainsAny(id, "drakkar", "ashlandship", "vikingshipashlands")) return 40;
+            if (ContainsAny(id, "portal", "teleport")) return 50;
+            if (ContainsAny(id, "boat", "ship")) return 60;
+            return -1;
+        }
+
+        internal static int MiscDefenseOrder(string itemId)
+        {
+            string id = Normalize(itemId);
+            if (ContainsAny(id, "roundpolefence", "roundpole", "woodfence")) return 0;
+            if (ContainsAny(id, "shieldgenerator", "shieldgen")) return 100;
+            return 50;
+        }
+
         internal static HammerSortKey Create(
             HammerSortCategory category,
             string itemId,
@@ -90,9 +112,8 @@ namespace InventoryUX.Core
 
         private static int MiscFamilyOrder(string id)
         {
-            if (ContainsAny(id, "portal", "teleport")) return 0;
-            if (id.Contains("cart")) return 10;
-            if (ContainsAny(id, "raft", "karve", "boat", "ship", "drakkar")) return 20;
+            int travelOrder = MiscTravelOrder(id);
+            if (travelOrder >= 0) return travelOrder;
 
             if (ContainsAny(id, "campfire", "firepit", "bonfire")) return 30;
             if (id.Contains("hearth")) return 31;

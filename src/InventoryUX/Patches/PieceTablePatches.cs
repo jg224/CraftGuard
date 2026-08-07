@@ -9,7 +9,7 @@ namespace InventoryUX.Patches
     {
         private static void Postfix(PieceTable __instance)
         {
-            if (!ModConfig.Enabled.Value)
+            if (!ModConfig.Enabled.Value || !HammerGroupDecorations.UseModView)
             {
                 return;
             }
@@ -35,7 +35,7 @@ namespace InventoryUX.Patches
                 if (!ModConfig.Enabled.Value)
                 {
                     HammerGridSizer.Restore();
-                    HammerGroupDecorations.Clear(__instance, true);
+                    HammerGroupDecorations.Shutdown();
                     return;
                 }
 

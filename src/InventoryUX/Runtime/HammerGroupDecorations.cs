@@ -26,8 +26,17 @@ namespace InventoryUX.Runtime
         private const float SubgroupLineInset = 19.8f;
         private const float TileInset = 3f;
         private const float LabelHeight = 14f;
+        private const float ViewControlsHeight = 76f;
+        private const float ViewButtonGap = 6f;
 
         private static readonly FieldInfo PieceIconsField = AccessTools.Field(typeof(Hud), "m_pieceIcons");
+        private static readonly FieldInfo PlayerBuildPiecesField = AccessTools.Field(typeof(Player), "m_buildPieces");
+        private static readonly MethodInfo UpdateAvailablePiecesMethod =
+            AccessTools.Method(typeof(Player), "UpdateAvailablePiecesList");
+        private static readonly MethodInfo HudUpdatePieceListMethod = AccessTools.Method(
+            typeof(Hud),
+            "UpdatePieceList",
+            new[] { typeof(Player), typeof(Vector2Int), typeof(Piece.PieceCategory), typeof(bool) });
         private static readonly Dictionary<int, NativeBackgroundState> NativeBackgrounds =
             new Dictionary<int, NativeBackgroundState>();
         private static readonly Dictionary<int, UIInputHandler> HoverInputs =
@@ -47,6 +56,12 @@ namespace InventoryUX.Runtime
         private static GameObject? _persistentRepair;
         private static GameObject? _hiddenRepairRoot;
         private static int _repairHudId = int.MinValue;
+        private static GameObject? _persistentViewControls;
+        private static Image? _defaultViewBackground;
+        private static Image? _modViewBackground;
+        private static int _viewControlsHudId = int.MinValue;
+
+        internal static bool UseModView { get; private set; } = true;
 
         private static readonly GroupPalette[] FallbackPalettes =
         {
@@ -63,6 +78,7 @@ namespace InventoryUX.Runtime
         internal static void Apply(Hud hud, IReadOnlyList<Piece> pieces, Piece.PieceCategory category)
         {
             RemoveStaleRepairForDifferentHud(hud);
+            EnsurePersistentViewControls(hud);
             UpdateRepairSelectionState();
 
             if (!IsEnabled(category))
@@ -624,6 +640,11 @@ namespace InventoryUX.Runtime
                 {
                     representative = FindBuildingBeamRepresentative(pieces, sourceIndices, labels, label, representative);
                 }
+                else if (category == Piece.PieceCategory.Misc
+                    && string.Equals(Normalize(label), "utility", StringComparison.Ordinal))
+                {
+                    representative = FindCartographyRepresentative(pieces, sourceIndices, labels, label, representative);
+                }
                 cards.Add(new ShelfCard(row, 1, label, representative));
             }
             return cards;
@@ -656,6 +677,26 @@ namespace InventoryUX.Runtime
                         || id.Contains("corewood")
                         || id.Contains("log"))) continue;
                 return sourceIndices[i];
+            }
+            return fallback;
+        }
+
+        private static int FindCartographyRepresentative(
+            IReadOnlyList<Piece> pieces,
+            List<int> sourceIndices,
+            string[] labels,
+            string label,
+            int fallback)
+        {
+            for (int i = 0; i < sourceIndices.Count; i++)
+            {
+                if (!string.Equals(labels[i], label, StringComparison.Ordinal)) continue;
+                Piece piece = pieces[sourceIndices[i]];
+                string id = Normalize(piece.gameObject.name + " " + piece.m_name);
+                if (id.Contains("cartography") || id.Contains("maptable"))
+                {
+                    return sourceIndices[i];
+                }
             }
             return fallback;
         }
@@ -1136,6 +1177,136 @@ namespace InventoryUX.Runtime
             UpdateRepairSelectionState();
         }
 
+        private static void EnsurePersistentViewControls(Hud hud)
+        {
+            if (_persistentViewControls == null || _viewControlsHudId != hud.GetInstanceID())
+            {
+                DestroyPersistentViewControls();
+                var rootObject = new GameObject(Prefix + "PersistentViewControls", typeof(RectTransform));
+                rootObject.transform.SetParent(hud.m_pieceSelectionWindow.transform, false);
+                rootObject.transform.SetAsLastSibling();
+                var root = (RectTransform)rootObject.transform;
+                root.anchorMin = new Vector2(0f, 1f);
+                root.anchorMax = new Vector2(0f, 1f);
+                root.pivot = new Vector2(0f, 1f);
+                root.anchoredPosition = new Vector2(18f, -(hud.m_pieceIconSpacing + 49f));
+                root.sizeDelta = new Vector2(hud.m_pieceIconSpacing + 8f, ViewControlsHeight);
+
+                _defaultViewBackground = CreateViewButton(hud, root, "DEFAULT VIEW", 0, false);
+                _modViewBackground = CreateViewButton(hud, root, "MOD VIEW", 1, true);
+                _persistentViewControls = rootObject;
+                _viewControlsHudId = hud.GetInstanceID();
+            }
+
+            _persistentViewControls.SetActive(true);
+            _persistentViewControls.transform.SetAsLastSibling();
+            UpdateViewButtonState();
+        }
+
+        private static Image CreateViewButton(
+            Hud hud,
+            RectTransform parent,
+            string caption,
+            int index,
+            bool useModView)
+        {
+            float buttonHeight = (ViewControlsHeight - ViewButtonGap) * 0.5f;
+            var buttonObject = new GameObject(
+                Prefix + (useModView ? "ModView" : "DefaultView"),
+                typeof(RectTransform),
+                typeof(Image),
+                typeof(Button));
+            buttonObject.transform.SetParent(parent, false);
+            var rect = (RectTransform)buttonObject.transform;
+            rect.anchorMin = new Vector2(0f, 1f);
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(0.5f, 1f);
+            rect.anchoredPosition = new Vector2(0f, -index * (buttonHeight + ViewButtonGap));
+            rect.sizeDelta = new Vector2(0f, buttonHeight);
+
+            Image background = buttonObject.GetComponent<Image>();
+            background.color = new Color(0.09f, 0.055f, 0.03f, 0.94f);
+            background.raycastTarget = true;
+            AddOutline(rect, Prefix + "ViewButtonBorder", 1f,
+                new Color(0.68f, 0.50f, 0.25f, 0.68f));
+
+            Button button = buttonObject.GetComponent<Button>();
+            button.targetGraphic = background;
+            // Unity's ColorTint transition writes directly to Image.color and
+            // would erase the persistent blue active-view state on pointer exit.
+            button.transition = Selectable.Transition.None;
+            button.onClick.AddListener(() => SetHammerView(hud, useModView));
+
+            var labelObject = new GameObject(Prefix + "ViewButtonLabel", typeof(RectTransform), typeof(TextMeshProUGUI));
+            labelObject.transform.SetParent(rect, false);
+            var labelRect = (RectTransform)labelObject.transform;
+            labelRect.anchorMin = Vector2.zero;
+            labelRect.anchorMax = Vector2.one;
+            labelRect.offsetMin = new Vector2(4f, 2f);
+            labelRect.offsetMax = new Vector2(-4f, -2f);
+
+            TextMeshProUGUI label = labelObject.GetComponent<TextMeshProUGUI>();
+            label.text = caption;
+            label.font = hud.m_pieceDescription != null ? hud.m_pieceDescription.font : null;
+            label.fontSize = 9.5f;
+            label.fontSizeMin = 7f;
+            label.fontSizeMax = 9.5f;
+            label.enableAutoSizing = true;
+            label.fontStyle = FontStyles.Bold;
+            label.color = new Color(0.94f, 0.83f, 0.64f, 1f);
+            label.alignment = TextAlignmentOptions.Center;
+            label.textWrappingMode = TextWrappingModes.NoWrap;
+            label.overflowMode = TextOverflowModes.Ellipsis;
+            label.outlineWidth = 0.16f;
+            label.outlineColor = Color.black;
+            label.raycastTarget = false;
+            return background;
+        }
+
+        private static void SetHammerView(Hud hud, bool useModView)
+        {
+            if (UseModView == useModView) return;
+
+            UseModView = useModView;
+            Clear(hud, true);
+            UpdateViewButtonState();
+
+            Player? player = Player.m_localPlayer;
+            if (player == null) return;
+
+            try
+            {
+                UpdateAvailablePiecesMethod.Invoke(player, null);
+                PieceTable? table = PlayerBuildPiecesField.GetValue(player) as PieceTable;
+                if (table == null) return;
+                HudUpdatePieceListMethod.Invoke(hud, new object[]
+                {
+                    player,
+                    table.GetSelectedIndex(),
+                    table.GetSelectedCategory(),
+                    true
+                });
+            }
+            catch (Exception exception)
+            {
+                Plugin.LogInstance.LogWarning($"Hammer view switch failed: {exception}");
+            }
+        }
+
+        private static void UpdateViewButtonState()
+        {
+            Color active = new Color(0.25f, 0.56f, 0.78f, 0.96f);
+            Color inactive = new Color(0.09f, 0.055f, 0.03f, 0.94f);
+            if (_defaultViewBackground != null)
+            {
+                _defaultViewBackground.color = UseModView ? inactive : active;
+            }
+            if (_modViewBackground != null)
+            {
+                _modViewBackground.color = UseModView ? active : inactive;
+            }
+        }
+
         private static void ConfigurePersistentRepair(Hud hud, GameObject button, Piece repairPiece)
         {
             float spacing = hud.m_pieceIconSpacing;
@@ -1241,6 +1412,10 @@ namespace InventoryUX.Runtime
             {
                 DestroyPersistentRepair();
             }
+            if (_persistentViewControls != null && _viewControlsHudId != hud.GetInstanceID())
+            {
+                DestroyPersistentViewControls();
+            }
         }
 
         private static void DestroyPersistentRepair()
@@ -1253,6 +1428,19 @@ namespace InventoryUX.Runtime
             _persistentRepair = null;
             _repairPiece = null;
             _repairHudId = int.MinValue;
+        }
+
+        private static void DestroyPersistentViewControls()
+        {
+            if (_persistentViewControls != null)
+            {
+                _persistentViewControls.SetActive(false);
+                UnityEngine.Object.Destroy(_persistentViewControls);
+            }
+            _persistentViewControls = null;
+            _defaultViewBackground = null;
+            _modViewBackground = null;
+            _viewControlsHudId = int.MinValue;
         }
 
         private static void AddOutline(Transform parent, string name, float inset, Color color)
@@ -1388,6 +1576,7 @@ namespace InventoryUX.Runtime
 
         private static bool IsEnabled(Piece.PieceCategory category)
         {
+            if (!UseModView) return false;
             switch (category)
             {
                 case Piece.PieceCategory.Misc: return true;
@@ -1416,6 +1605,8 @@ namespace InventoryUX.Runtime
             _hiddenRepairRoot = null;
             RestoreNativeCraftingCells();
             DestroyPersistentRepair();
+            DestroyPersistentViewControls();
+            UseModView = true;
             ResetState();
         }
 

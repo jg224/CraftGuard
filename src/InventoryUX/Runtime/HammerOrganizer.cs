@@ -126,7 +126,8 @@ namespace InventoryUX.Runtime
 
                 if (category == Piece.PieceCategory.BuildingWorkbench
                     || category == Piece.PieceCategory.BuildingStonecutter
-                    || category == Piece.PieceCategory.Furniture)
+                    || category == Piece.PieceCategory.Furniture
+                    || category == Piece.PieceCategory.Misc)
                 {
                     comparison = leftGroup.Suborder.CompareTo(rightGroup.Suborder);
                     if (comparison != 0) return comparison;
@@ -188,22 +189,24 @@ namespace InventoryUX.Runtime
 
             string id = SearchText(piece);
             string components = ComponentNames(piece);
-            if (ContainsAny(id,
-                    "portal", "teleport", "cart", "karve", "longship",
-                    "drakkar", "raft", "ship", "boat"))
-                return new PieceGroup("Travel", 0, 0);
+            if (ContainsAny(id, "cartography", "maptable"))
+                return new PieceGroup("Utility", 5, 0);
+            int travelOrder = HammerProgressionSorter.MiscTravelOrder(id);
+            if (travelOrder >= 0)
+                return new PieceGroup("Travel", 0, travelOrder);
             if (ContainsAny(id, "campfire", "bonfire", "firepit", "hearth", "brazier")
                 || components.Contains("fireplace"))
                 return new PieceGroup("Fire / Comfort", 1, 0);
             if (ContainsAny(id,
+                    "trap", "stake", "spike", "palisade", "barricade",
+                    "roundpolefence", "roundpole", "woodfence",
+                    "shieldgenerator", "shieldgen",
+                    "defence", "defense"))
+                return new PieceGroup("Defense", 2, HammerProgressionSorter.MiscDefenseOrder(id));
+            if (ContainsAny(id,
                     "ballista", "catapult", "batteringram", "siege",
                     "turret", "cannon"))
                 return new PieceGroup("Siege", 3, 0);
-            if (ContainsAny(id,
-                    "trap", "stake", "spike", "palisade", "barricade",
-                    "roundpolefence", "shieldgenerator", "shieldgen",
-                    "defence", "defense"))
-                return new PieceGroup("Defense", 2, 0);
             if (ContainsAny(id,
                     "resource", "stack", "pile", "woodpile", "stonepile",
                     "coalpile", "orepile", "scrappile", "coinpile",
