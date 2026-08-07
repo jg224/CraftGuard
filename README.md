@@ -9,6 +9,7 @@
 [![Valheim](https://img.shields.io/badge/game-Valheim-d8b45d)](https://www.valheimgame.com/)
 [![BepInEx 5](https://img.shields.io/badge/loader-BepInEx%205-5d8aa8)](https://github.com/BepInEx/BepInEx)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Thunderstore](https://img.shields.io/badge/Thunderstore-224--CraftGuard-5f8f3e)](https://thunderstore.io/c/valheim/p/224/CraftGuard/)
 
 CraftGuard is a client-side Valheim mod that turns crowded Hammer and crafting menus into readable, progression-aware interfaces. It changes presentation only: recipes, resource costs, unlocks, character progression, and world data remain untouched.
 
@@ -29,6 +30,12 @@ CraftGuard is a client-side Valheim mod that turns crowded Hammer and crafting m
 - Supports modded pieces and recipes through stable fallback groups.
 
 ## Install
+
+### Thunderstore
+
+Install [224-CraftGuard](https://thunderstore.io/c/valheim/p/224/CraftGuard/) with Thunderstore Mod Manager or r2modman. Its BepInEx dependency is installed automatically.
+
+### Manual
 
 1. Install BepInEx 5 for the Valheim client.
 2. Download `CraftGuard-0.1.0.zip` from the [latest release](https://github.com/jg224/CraftGuard/releases/latest).

@@ -1,0 +1,37 @@
+[config]
+schemaVersion = "0.0.1"
+
+[package]
+namespace = "224"
+name = "CraftGuard"
+versionNumber = "0.1.0"
+description = "Organizes Valheim's Hammer and crafting-station menus."
+websiteUrl = "https://github.com/jg224/CraftGuard"
+containsNsfwContent = false
+
+[package.dependencies]
+denikson-BepInExPack_Valheim = "5.4.2333"
+
+[build]
+icon = "./thunderstore/icon.png"
+readme = "./thunderstore/README.md"
+outdir = "./dist/thunderstore"
+
+[[build.copy]]
+source = "./src/InventoryUX/bin/Release/net472/CraftGuard.dll"
+target = "CraftGuard.dll"
+
+[[build.copy]]
+source = "./LICENSE"
+target = "LICENSE"
+
+[[build.copy]]
+source = "./CHANGELOG.md"
+target = "CHANGELOG.md"
+
+[publish]
+repository = "https://thunderstore.io"
+communities = [ "valheim" ]
+
+[publish.categories]
+valheim = [ "mods", "tweaks", "crafting", "client-side", "utility" ]
