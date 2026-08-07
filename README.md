@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="icon.png" alt="CraftGuard icon" width="240">
+</p>
+
 # CraftGuard
 
 [![Latest release](https://img.shields.io/github/v/release/jg224/CraftGuard?display_name=tag&sort=semver)](https://github.com/jg224/CraftGuard/releases/latest)
