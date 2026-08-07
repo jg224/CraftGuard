@@ -4,6 +4,7 @@
 [![Downloads](https://img.shields.io/github/downloads/jg224/CraftGuard/total)](https://github.com/jg224/CraftGuard/releases)
 [![Valheim](https://img.shields.io/badge/game-Valheim-d8b45d)](https://www.valheimgame.com/)
 [![BepInEx 5](https://img.shields.io/badge/loader-BepInEx%205-5d8aa8)](https://github.com/BepInEx/BepInEx)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 CraftGuard is a client-side Valheim mod that turns crowded Hammer and crafting menus into readable, progression-aware interfaces. It changes presentation only: recipes, resource costs, unlocks, character progression, and world data remain untouched.
 
@@ -99,4 +100,6 @@ The core suite checks sorting, grouping, search, food resolution, and layout pla
 - [Request a feature](https://github.com/jg224/CraftGuard/issues/new?template=feature_request.yml)
 - Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a pull request.
 
-CraftGuard is an unofficial community mod and is not affiliated with Iron Gate AB or Coffee Stain Publishing.
+## License
+
+CraftGuard is available under the [MIT License](LICENSE).
