@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2 - 2026-08-07
+
+- Fixes the static Repair button so it enters repair mode from every Hammer tab without switching categories.
+
 ## 0.1.1 - 2026-08-07
 
 - Publishes CraftGuard under the correct `jg224` Thunderstore namespace.
