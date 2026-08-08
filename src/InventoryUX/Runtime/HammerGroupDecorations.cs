@@ -1389,9 +1389,51 @@ namespace InventoryUX.Runtime
 
         private static void OnPersistentRepairSelected(UIInputHandler _)
         {
-            if (_repairPiece == null || Player.m_localPlayer == null) return;
-            Player.m_localPlayer.SetSelectedPiece(_repairPiece);
+            Player? player = Player.m_localPlayer;
+            if (player == null) return;
+
+            PieceTable? table = PlayerBuildPiecesField.GetValue(player) as PieceTable;
+            List<Piece>? pieces = player.GetBuildPieces();
+            if (table == null || pieces == null) return;
+
+            // Repair is an All-category piece. Player.SetSelectedPiece(Piece)
+            // attempts to resolve a single owning category and can therefore
+            // fail (or jump to the one category where the lookup happened to
+            // succeed). Select the Repair entry in the active category by its
+            // logical grid index instead. This preserves the open tab and
+            // matches the way Valheim handles a normal repair-cell click.
+            int repairIndex = FindRepairIndexInCurrentCategory(table, pieces);
+            if (repairIndex < 0)
+            {
+                Plugin.LogInstance.LogWarning(
+                    $"Static Repair selection failed: no Repair action was found in {table.GetSelectedCategory()}.");
+                return;
+            }
+
+            player.SetSelectedPiece(new Vector2Int(
+                repairIndex % GridWidth,
+                repairIndex / GridWidth));
             Hud.HidePieceSelection();
+        }
+
+        private static int FindRepairIndexInCurrentCategory(
+            PieceTable table,
+            IReadOnlyList<Piece> pieces)
+        {
+            if (_stateValid
+                && table.GetSelectedCategory() == _appliedCategory
+                && _repairLogicalIndex >= 0
+                && _repairLogicalIndex < pieces.Count
+                && CraftingLayoutMetadata.IsRepair(pieces[_repairLogicalIndex]))
+            {
+                return _repairLogicalIndex;
+            }
+
+            for (int i = 0; i < pieces.Count; i++)
+            {
+                if (CraftingLayoutMetadata.IsRepair(pieces[i])) return i;
+            }
+            return -1;
         }
 
         private static void UpdateRepairSelectionState()
