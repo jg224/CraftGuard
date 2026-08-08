@@ -49,7 +49,11 @@ namespace InventoryUX.Runtime
         private static int _visualHeight = GridHeight;
         private static bool _stateValid;
         private static int _appliedHudId = int.MinValue;
-        private static int _appliedSignature;
+        private static int _piecesGeneration;
+        private static int _appliedPiecesGeneration = -1;
+        private static int _appliedPieceCount = -1;
+        private static bool _appliedShowSeparators;
+        private static bool _appliedShowPieceNames;
         private static Piece.PieceCategory _appliedCategory = Piece.PieceCategory.Max;
         private static int _repairLogicalIndex = -1;
         private static Piece? _repairPiece;
@@ -62,6 +66,11 @@ namespace InventoryUX.Runtime
         private static int _viewControlsHudId = int.MinValue;
 
         internal static bool UseModView { get; private set; } = true;
+
+        internal static void NotifyPiecesChanged()
+        {
+            _piecesGeneration = unchecked(_piecesGeneration + 1);
+        }
 
         private static readonly GroupPalette[] FallbackPalettes =
         {
@@ -77,9 +86,9 @@ namespace InventoryUX.Runtime
 
         internal static void Apply(Hud hud, IReadOnlyList<Piece> pieces, Piece.PieceCategory category)
         {
-            RemoveStaleRepairForDifferentHud(hud);
-            EnsurePersistentViewControls(hud);
-            UpdateRepairSelectionState();
+            int hudInstanceId = hud.GetInstanceID();
+            RemoveStaleRepairForDifferentHud(hudInstanceId);
+            EnsurePersistentViewControls(hud, hudInstanceId);
 
             if (!IsEnabled(category))
             {
@@ -87,17 +96,21 @@ namespace InventoryUX.Runtime
                 return;
             }
 
-            IList icons = (IList)PieceIconsField.GetValue(hud);
-            int count = Math.Min(pieces.Count, icons.Count);
-            int signature = ComputeSignature(pieces, icons, count);
+            bool showSeparators = ModConfig.ShowSeparators.Value;
+            bool showPieceNames = ModConfig.ShowHammerPieceNames.Value;
             if (_stateValid
-                && _appliedHudId == hud.GetInstanceID()
+                && _appliedHudId == hudInstanceId
                 && _appliedCategory == category
-                && _appliedSignature == signature)
+                && _appliedPiecesGeneration == _piecesGeneration
+                && _appliedPieceCount == pieces.Count
+                && _appliedShowSeparators == showSeparators
+                && _appliedShowPieceNames == showPieceNames)
             {
                 return;
             }
 
+            IList icons = (IList)PieceIconsField.GetValue(hud);
+            int count = Math.Min(pieces.Count, icons.Count);
             Clear(hud);
             try
             {
@@ -112,7 +125,7 @@ namespace InventoryUX.Runtime
                     AddReferenceCraftingRows(hud, pieces, icons, count, layout);
                     _visualWidth = GridWidth;
                     _visualHeight = GridHeight;
-                    RememberState(hud, category, signature);
+                    RememberState(hudInstanceId, category, pieces.Count, showSeparators, showPieceNames);
                     return;
                 }
 
@@ -130,7 +143,7 @@ namespace InventoryUX.Runtime
                     ConfigureNativePieceCells(icons, count, layout.Slots, layout.RepairIndex);
                     ApplyShelfPositions(hud, icons, layout, count);
                     AddShelfRows(hud, pieces, icons, count, layout);
-                    RememberState(hud, category, signature);
+                    RememberState(hudInstanceId, category, pieces.Count, showSeparators, showPieceNames);
                     return;
                 }
 
@@ -148,7 +161,7 @@ namespace InventoryUX.Runtime
                     }
                     previous = label;
                 }
-                RememberState(hud, category, signature);
+                RememberState(hudInstanceId, category, pieces.Count, showSeparators, showPieceNames);
             }
             catch
             {
@@ -158,33 +171,19 @@ namespace InventoryUX.Runtime
             }
         }
 
-        private static int ComputeSignature(IReadOnlyList<Piece> pieces, IList icons, int count)
+        private static void RememberState(
+            int hudInstanceId,
+            Piece.PieceCategory category,
+            int pieceCount,
+            bool showSeparators,
+            bool showPieceNames)
         {
-            int hash = 17;
-            hash = unchecked(hash * 31 + count);
-            hash = unchecked(hash * 31 + icons.Count);
-            hash = unchecked(hash * 31 + (ModConfig.ShowSeparators.Value ? 1 : 0));
-            hash = unchecked(hash * 31 + (ModConfig.ShowHammerPieceNames.Value ? 1 : 0));
-            if (icons.Count > 0)
-            {
-                hash = unchecked(hash * 31 + GetIconGameObject(icons[0]!).GetInstanceID());
-            }
-
-            for (int i = 0; i < count; i++)
-            {
-                Piece piece = pieces[i];
-                hash = unchecked(hash * 31 + piece.GetInstanceID());
-                string label = HammerOrganizer.GetLabel(piece) ?? string.Empty;
-                hash = unchecked(hash * 31 + label.GetHashCode());
-            }
-            return hash;
-        }
-
-        private static void RememberState(Hud hud, Piece.PieceCategory category, int signature)
-        {
-            _appliedHudId = hud.GetInstanceID();
+            _appliedHudId = hudInstanceId;
             _appliedCategory = category;
-            _appliedSignature = signature;
+            _appliedPiecesGeneration = _piecesGeneration;
+            _appliedPieceCount = pieceCount;
+            _appliedShowSeparators = showSeparators;
+            _appliedShowPieceNames = showPieceNames;
             _stateValid = true;
         }
 
@@ -192,7 +191,8 @@ namespace InventoryUX.Runtime
         {
             _stateValid = false;
             _appliedHudId = int.MinValue;
-            _appliedSignature = 0;
+            _appliedPiecesGeneration = -1;
+            _appliedPieceCount = -1;
             _appliedCategory = Piece.PieceCategory.Max;
             _visualSlots = Array.Empty<int>();
             _visualWidth = GridWidth;
@@ -928,7 +928,7 @@ namespace InventoryUX.Runtime
             Image card = cardObject.GetComponent<Image>();
             card.color = new Color(0.075f, 0.048f, 0.027f, 0.91f);
             card.raycastTarget = false;
-            AddOutline(cardRect, Prefix + "CraftingCategoryBorder", 0f,
+            AddOutline(cardRect, 0f,
                 new Color(0.66f, 0.49f, 0.25f, 0.54f));
 
             var iconObject = new GameObject(Prefix + "CraftingCategoryIcon", typeof(RectTransform), typeof(Image));
@@ -1174,32 +1174,27 @@ namespace InventoryUX.Runtime
             _hiddenRepairRoot = GetIconGameObject(icons[repairIndex]!);
             _hiddenRepairRoot.SetActive(false);
             _persistentRepair.SetActive(true);
-            UpdateRepairSelectionState();
         }
 
-        private static void EnsurePersistentViewControls(Hud hud)
+        private static void EnsurePersistentViewControls(Hud hud, int hudInstanceId)
         {
-            if (_persistentViewControls == null || _viewControlsHudId != hud.GetInstanceID())
-            {
-                DestroyPersistentViewControls();
-                var rootObject = new GameObject(Prefix + "PersistentViewControls", typeof(RectTransform));
-                rootObject.transform.SetParent(hud.m_pieceSelectionWindow.transform, false);
-                rootObject.transform.SetAsLastSibling();
-                var root = (RectTransform)rootObject.transform;
-                root.anchorMin = new Vector2(0f, 1f);
-                root.anchorMax = new Vector2(0f, 1f);
-                root.pivot = new Vector2(0f, 1f);
-                root.anchoredPosition = new Vector2(18f, -(hud.m_pieceIconSpacing + 49f));
-                root.sizeDelta = new Vector2(hud.m_pieceIconSpacing + 8f, ViewControlsHeight);
+            if (_persistentViewControls != null && _viewControlsHudId == hudInstanceId) return;
 
-                _defaultViewBackground = CreateViewButton(hud, root, "DEFAULT VIEW", 0, false);
-                _modViewBackground = CreateViewButton(hud, root, "MOD VIEW", 1, true);
-                _persistentViewControls = rootObject;
-                _viewControlsHudId = hud.GetInstanceID();
-            }
+            DestroyPersistentViewControls();
+            var rootObject = new GameObject(Prefix + "PersistentViewControls", typeof(RectTransform));
+            rootObject.transform.SetParent(hud.m_pieceSelectionWindow.transform, false);
+            rootObject.transform.SetAsLastSibling();
+            var root = (RectTransform)rootObject.transform;
+            root.anchorMin = new Vector2(0f, 1f);
+            root.anchorMax = new Vector2(0f, 1f);
+            root.pivot = new Vector2(0f, 1f);
+            root.anchoredPosition = new Vector2(18f, -(hud.m_pieceIconSpacing + 49f));
+            root.sizeDelta = new Vector2(hud.m_pieceIconSpacing + 8f, ViewControlsHeight);
 
-            _persistentViewControls.SetActive(true);
-            _persistentViewControls.transform.SetAsLastSibling();
+            _defaultViewBackground = CreateViewButton(hud, root, "DEFAULT VIEW", 0, false);
+            _modViewBackground = CreateViewButton(hud, root, "MOD VIEW", 1, true);
+            _persistentViewControls = rootObject;
+            _viewControlsHudId = hudInstanceId;
             UpdateViewButtonState();
         }
 
@@ -1227,7 +1222,7 @@ namespace InventoryUX.Runtime
             Image background = buttonObject.GetComponent<Image>();
             background.color = new Color(0.09f, 0.055f, 0.03f, 0.94f);
             background.raycastTarget = true;
-            AddOutline(rect, Prefix + "ViewButtonBorder", 1f,
+            AddOutline(rect, 1f,
                 new Color(0.68f, 0.50f, 0.25f, 0.68f));
 
             Button button = buttonObject.GetComponent<Button>();
@@ -1322,7 +1317,7 @@ namespace InventoryUX.Runtime
             {
                 background.color = new Color(0.09f, 0.055f, 0.03f, 0.94f);
                 background.raycastTarget = true;
-                AddOutline(rect, Prefix + "RepairBorder", 1f,
+                AddOutline(rect, 1f,
                     new Color(0.68f, 0.50f, 0.25f, 0.68f));
             }
 
@@ -1436,25 +1431,13 @@ namespace InventoryUX.Runtime
             return -1;
         }
 
-        private static void UpdateRepairSelectionState()
+        private static void RemoveStaleRepairForDifferentHud(int hudInstanceId)
         {
-            if (_persistentRepair == null) return;
-            Transform? marker = _persistentRepair.transform.Find("selected");
-            if (marker != null)
-            {
-                // The approved reference keeps Repair as a dark utility card;
-                // the native bright-blue full-cell marker overwhelms that art.
-                marker.gameObject.SetActive(false);
-            }
-        }
-
-        private static void RemoveStaleRepairForDifferentHud(Hud hud)
-        {
-            if (_persistentRepair != null && _repairHudId != hud.GetInstanceID())
+            if (_persistentRepair != null && _repairHudId != hudInstanceId)
             {
                 DestroyPersistentRepair();
             }
-            if (_persistentViewControls != null && _viewControlsHudId != hud.GetInstanceID())
+            if (_persistentViewControls != null && _viewControlsHudId != hudInstanceId)
             {
                 DestroyPersistentViewControls();
             }
@@ -1485,38 +1468,13 @@ namespace InventoryUX.Runtime
             _viewControlsHudId = int.MinValue;
         }
 
-        private static void AddOutline(Transform parent, string name, float inset, Color color)
+        private static void AddOutline(Transform parent, float inset, Color color)
         {
-            AddOutlineLine(parent, name + "Top", new Vector2(0f, 1f), new Vector2(1f, 1f),
-                new Vector2(0f, -inset), new Vector2(-inset * 2f, 1f), color);
-            AddOutlineLine(parent, name + "Bottom", new Vector2(0f, 0f), new Vector2(1f, 0f),
-                new Vector2(0f, inset), new Vector2(-inset * 2f, 1f), color);
-            AddOutlineLine(parent, name + "Left", new Vector2(0f, 0f), new Vector2(0f, 1f),
-                new Vector2(inset, 0f), new Vector2(1f, -inset * 2f), color);
-            AddOutlineLine(parent, name + "Right", new Vector2(1f, 0f), new Vector2(1f, 1f),
-                new Vector2(-inset, 0f), new Vector2(1f, -inset * 2f), color);
-        }
-
-        private static void AddOutlineLine(
-            Transform parent,
-            string name,
-            Vector2 anchorMin,
-            Vector2 anchorMax,
-            Vector2 position,
-            Vector2 size,
-            Color color)
-        {
-            var lineObject = new GameObject(name, typeof(RectTransform), typeof(Image));
-            lineObject.transform.SetParent(parent, false);
-            var rect = (RectTransform)lineObject.transform;
-            rect.anchorMin = anchorMin;
-            rect.anchorMax = anchorMax;
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = position;
-            rect.sizeDelta = size;
-            Image line = lineObject.GetComponent<Image>();
-            line.color = color;
-            line.raycastTarget = false;
+            var outline = parent.gameObject.AddComponent<Outline>();
+            float distance = Mathf.Max(1f, inset);
+            outline.effectColor = color;
+            outline.effectDistance = new Vector2(distance, -distance);
+            outline.useGraphicAlpha = true;
         }
 
         private static void ApplyGridPermutation(

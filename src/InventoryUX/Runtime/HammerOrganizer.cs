@@ -79,49 +79,67 @@ namespace InventoryUX.Runtime
             }
 
             List<Piece> pieces = all[index];
-            var originalIndex = new Dictionary<int, int>();
+            var entries = new List<HammerSortEntry>(pieces.Count);
             for (int i = 0; i < pieces.Count; i++)
             {
-                originalIndex[pieces[i].GetInstanceID()] = i;
+                Piece piece = pieces[i];
+                PieceGroup group = Classify(piece, category);
+                bool action = category == Piece.PieceCategory.Crafting
+                    ? piece.m_repairPiece || piece.m_removePiece
+                    : CraftingLayoutMetadata.IsRepair(piece) || piece.m_removePiece;
+                CraftingPieceLayout craftingLayout = default;
+                HammerSortKey progression = default;
+                string localizedName = string.Empty;
+
                 if (category == Piece.PieceCategory.Crafting)
                 {
-                    LabelsByPiece[pieces[i].GetInstanceID()] = ClassifyCrafting(pieces[i]).Label;
+                    if (!action) craftingLayout = CraftingLayoutMetadata.Resolve(piece);
+                    localizedName = Localize(piece.m_name);
                 }
+                else if (!action)
+                {
+                    progression = HammerProgressionSorter.Create(
+                        ToSortCategory(category),
+                        SearchText(piece),
+                        ResourceIdentifiers(piece));
+                }
+
+                entries.Add(new HammerSortEntry(
+                    piece,
+                    i,
+                    action,
+                    group,
+                    craftingLayout,
+                    progression,
+                    localizedName));
+                LabelsByPiece[piece.GetInstanceID()] = group.Label;
             }
 
-            pieces.Sort((left, right) =>
+            entries.Sort((left, right) =>
             {
                 if (category == Piece.PieceCategory.Crafting)
                 {
-                    bool leftCraftAction = left.m_repairPiece || left.m_removePiece;
-                    bool rightCraftAction = right.m_repairPiece || right.m_removePiece;
-                    if (leftCraftAction != rightCraftAction) return leftCraftAction ? 1 : -1;
-                    if (!leftCraftAction)
+                    if (left.Action != right.Action) return left.Action ? 1 : -1;
+                    if (!left.Action)
                     {
-                        CraftingPieceLayout leftLayout = CraftingLayoutMetadata.Resolve(left);
-                        CraftingPieceLayout rightLayout = CraftingLayoutMetadata.Resolve(right);
-                        int layoutComparison = leftLayout.Section.CompareTo(rightLayout.Section);
+                        int layoutComparison = left.CraftingLayout.Section.CompareTo(right.CraftingLayout.Section);
                         if (layoutComparison != 0) return layoutComparison;
-                        layoutComparison = leftLayout.SortOrder.CompareTo(rightLayout.SortOrder);
+                        layoutComparison = left.CraftingLayout.SortOrder.CompareTo(right.CraftingLayout.SortOrder);
                         if (layoutComparison != 0) return layoutComparison;
                     }
 
                     int nameComparison = string.Compare(
-                        Localize(left.m_name),
-                        Localize(right.m_name),
+                        left.LocalizedName,
+                        right.LocalizedName,
                         StringComparison.CurrentCultureIgnoreCase);
                     if (nameComparison != 0) return nameComparison;
-                    return originalIndex[left.GetInstanceID()].CompareTo(originalIndex[right.GetInstanceID()]);
+                    return left.OriginalIndex.CompareTo(right.OriginalIndex);
                 }
 
-                bool leftRepair = CraftingLayoutMetadata.IsRepair(left) || left.m_removePiece;
-                bool rightRepair = CraftingLayoutMetadata.IsRepair(right) || right.m_removePiece;
-                if (leftRepair != rightRepair) return leftRepair ? 1 : -1;
-                if (leftRepair) return originalIndex[left.GetInstanceID()].CompareTo(originalIndex[right.GetInstanceID()]);
+                if (left.Action != right.Action) return left.Action ? 1 : -1;
+                if (left.Action) return left.OriginalIndex.CompareTo(right.OriginalIndex);
 
-                PieceGroup leftGroup = Classify(left, category);
-                PieceGroup rightGroup = Classify(right, category);
-                int comparison = leftGroup.Order.CompareTo(rightGroup.Order);
+                int comparison = left.Group.Order.CompareTo(right.Group.Order);
                 if (comparison != 0) return comparison;
 
                 if (category == Piece.PieceCategory.BuildingWorkbench
@@ -129,26 +147,18 @@ namespace InventoryUX.Runtime
                     || category == Piece.PieceCategory.Furniture
                     || category == Piece.PieceCategory.Misc)
                 {
-                    comparison = leftGroup.Suborder.CompareTo(rightGroup.Suborder);
+                    comparison = left.Group.Suborder.CompareTo(right.Group.Suborder);
                     if (comparison != 0) return comparison;
                 }
 
-                HammerSortKey leftKey = HammerProgressionSorter.Create(
-                    ToSortCategory(category),
-                    SearchText(left),
-                    ResourceIdentifiers(left));
-                HammerSortKey rightKey = HammerProgressionSorter.Create(
-                    ToSortCategory(category),
-                    SearchText(right),
-                    ResourceIdentifiers(right));
-                comparison = leftKey.CompareTo(rightKey);
+                comparison = left.Progression.CompareTo(right.Progression);
                 if (comparison != 0) return comparison;
-                return originalIndex[left.GetInstanceID()].CompareTo(originalIndex[right.GetInstanceID()]);
+                return left.OriginalIndex.CompareTo(right.OriginalIndex);
             });
 
-            for (int i = 0; i < pieces.Count; i++)
+            for (int i = 0; i < entries.Count; i++)
             {
-                LabelsByPiece[pieces[i].GetInstanceID()] = Classify(pieces[i], category).Label;
+                pieces[i] = entries[i].Piece;
             }
         }
 
@@ -442,6 +452,35 @@ namespace InventoryUX.Runtime
             if (end == value.Length - 1) return -1;
             return int.TryParse(value.Substring(end + 1), NumberStyles.None, CultureInfo.InvariantCulture, out int number) ? number : -1;
         }
+    }
+
+    internal readonly struct HammerSortEntry
+    {
+        internal HammerSortEntry(
+            Piece piece,
+            int originalIndex,
+            bool action,
+            PieceGroup group,
+            CraftingPieceLayout craftingLayout,
+            HammerSortKey progression,
+            string localizedName)
+        {
+            Piece = piece;
+            OriginalIndex = originalIndex;
+            Action = action;
+            Group = group;
+            CraftingLayout = craftingLayout;
+            Progression = progression;
+            LocalizedName = localizedName;
+        }
+
+        internal Piece Piece { get; }
+        internal int OriginalIndex { get; }
+        internal bool Action { get; }
+        internal PieceGroup Group { get; }
+        internal CraftingPieceLayout CraftingLayout { get; }
+        internal HammerSortKey Progression { get; }
+        internal string LocalizedName { get; }
     }
 
     internal readonly struct PieceGroup

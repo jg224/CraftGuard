@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0 - 2026-08-08
+
+- Rebuilds the organized Hammer layout only when pieces, tabs, or relevant settings change, eliminating full-list scans and hierarchy reordering on idle frames.
+- Computes names, identifiers, progression keys, and group metadata once per piece during a refresh instead of repeatedly inside sort comparisons.
+- Reduces custom Hammer UI object count by replacing four-object borders with lightweight outlines.
+- Removes redundant grid transpilers now that CraftGuard uses Valheim's native 15 by 6 Hammer grid.
+
 ## 0.1.2 - 2026-08-07
 
 - Fixes the static Repair button so it enters repair mode from every Hammer tab without switching categories.

@@ -17,6 +17,7 @@ namespace InventoryUX.Patches
             try
             {
                 HammerOrganizer.ReorderAvailablePieces(__instance);
+                HammerGroupDecorations.NotifyPiecesChanged();
             }
             catch (System.Exception exception)
             {

@@ -13,4 +13,6 @@ Organizes Valheim's Hammer and crafting stations without changing recipes, costs
 
 ---
 
+**0.2.0:** Greatly reduces Hammer-open frame loss by avoiding repeated layout work while the menu is idle.
+
 Client-side only. [Source and support](https://github.com/jg224/CraftGuard)

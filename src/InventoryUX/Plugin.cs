@@ -12,7 +12,7 @@ namespace InventoryUX
         // and an old InventoryUX DLL cannot load beside CraftGuard by accident.
         internal const string PluginGuid = "com.inventoryux.valheim";
         internal const string PluginName = "CraftGuard";
-        internal const string PluginVersion = "0.1.2";
+        internal const string PluginVersion = "0.2.0";
 
         internal static ManualLogSource LogInstance { get; private set; } = null!;
         internal static Plugin Instance { get; private set; } = null!;
