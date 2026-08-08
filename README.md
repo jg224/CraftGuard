@@ -9,7 +9,7 @@
 [![Valheim](https://img.shields.io/badge/game-Valheim-d8b45d)](https://www.valheimgame.com/)
 [![BepInEx 5](https://img.shields.io/badge/loader-BepInEx%205-5d8aa8)](https://github.com/BepInEx/BepInEx)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Thunderstore](https://img.shields.io/badge/Thunderstore-224--CraftGuard-5f8f3e)](https://thunderstore.io/c/valheim/p/224/CraftGuard/)
+[![Thunderstore](https://img.shields.io/badge/Thunderstore-jg224--CraftGuard-5f8f3e)](https://thunderstore.io/c/valheim/p/jg224/CraftGuard/)
 
 CraftGuard is a client-side Valheim mod that turns crowded Hammer and crafting menus into readable, progression-aware interfaces. It changes presentation only: recipes, resource costs, unlocks, character progression, and world data remain untouched.
 
@@ -34,7 +34,7 @@ CraftGuard is a client-side Valheim mod that turns crowded Hammer and crafting m
 
 ### Thunderstore
 
-Install [224-CraftGuard](https://thunderstore.io/c/valheim/p/224/CraftGuard/) with Thunderstore Mod Manager or r2modman. Its BepInEx dependency is installed automatically.
+Install [jg224-CraftGuard](https://thunderstore.io/c/valheim/p/jg224/CraftGuard/) with Thunderstore Mod Manager or r2modman. Its BepInEx dependency is installed automatically.
 
 ### Manual
 
