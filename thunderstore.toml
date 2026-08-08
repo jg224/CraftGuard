@@ -2,7 +2,7 @@
 schemaVersion = "0.0.1"
 
 [package]
-namespace = "224"
+namespace = "jg224"
 name = "CraftGuard"
 versionNumber = "0.1.1"
 description = "Organizes Valheim's Hammer and crafting-station menus."
