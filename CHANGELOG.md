@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.5 - 2026-08-09
+
+- Removes the client-side/source footer from the Thunderstore Details page.
+
 ## 0.2.4 - 2026-08-09
 
 - Keeps release-specific update notes in the changelog instead of the main mod description.
