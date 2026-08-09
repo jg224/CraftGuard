@@ -41,6 +41,14 @@ namespace InventoryUX.Runtime
             new Dictionary<int, NativeBackgroundState>();
         private static readonly Dictionary<int, UIInputHandler> HoverInputs =
             new Dictionary<int, UIInputHandler>();
+        private static readonly List<CategoryCardView> CategoryCardPool = new List<CategoryCardView>();
+        private static readonly List<Image> DecorationLinePool = new List<Image>();
+        private static readonly List<GameObject> IconDecorationPool = new List<GameObject>();
+        private static readonly HashSet<int> IconDecorationIds = new HashSet<int>();
+        private static int _decorationPoolHudId = int.MinValue;
+        private static int _usedCategoryCards;
+        private static int _usedDecorationLines;
+        private static Image? _categoryHeaderBackgroundForPass;
 
         private static Type? _iconType;
         private static FieldInfo? _iconGoField;
@@ -49,7 +57,7 @@ namespace InventoryUX.Runtime
         private static int _visualHeight = GridHeight;
         private static bool _stateValid;
         private static int _appliedHudId = int.MinValue;
-        private static int _piecesGeneration;
+        private static readonly int[] PieceGenerations = new int[(int)Piece.PieceCategory.Max + 1];
         private static int _appliedPiecesGeneration = -1;
         private static int _appliedPieceCount = -1;
         private static bool _appliedShowSeparators;
@@ -75,9 +83,17 @@ namespace InventoryUX.Runtime
                 && ModConfig.GetToolModView(table.gameObject.name);
         }
 
-        internal static void NotifyPiecesChanged()
+        internal static void NotifyPiecesChanged(Piece.PieceCategory category)
         {
-            _piecesGeneration = unchecked(_piecesGeneration + 1);
+            int index = (int)category;
+            if (index < 0 || index >= PieceGenerations.Length) return;
+            PieceGenerations[index] = unchecked(PieceGenerations[index] + 1);
+        }
+
+        private static int GetPiecesGeneration(Piece.PieceCategory category)
+        {
+            int index = (int)category;
+            return index >= 0 && index < PieceGenerations.Length ? PieceGenerations[index] : 0;
         }
 
         private static readonly GroupPalette[] FallbackPalettes =
@@ -122,7 +138,7 @@ namespace InventoryUX.Runtime
             if (_stateValid
                 && _appliedHudId == hudInstanceId
                 && _appliedCategory == category
-                && _appliedPiecesGeneration == _piecesGeneration
+                && _appliedPiecesGeneration == GetPiecesGeneration(category)
                 && _appliedPieceCount == pieces.Count
                 && _appliedShowSeparators == showSeparators
                 && _appliedShowPieceNames == showPieceNames)
@@ -133,6 +149,7 @@ namespace InventoryUX.Runtime
             IList icons = (IList)PieceIconsField.GetValue(hud);
             int count = Math.Min(pieces.Count, icons.Count);
             Clear(hud);
+            _categoryHeaderBackgroundForPass = FindVanillaCategoryHeaderBackground(hud);
             try
             {
                 if (category == Piece.PieceCategory.Crafting && CanUseReferenceCraftingLayout(pieces, count))
@@ -171,7 +188,7 @@ namespace InventoryUX.Runtime
                 string? previous = null;
                 for (int i = 0; i < count; i++)
                 {
-                    string label = HammerOrganizer.GetLabel(pieces[i]) ?? "Other";
+                    string label = HammerOrganizer.GetLabel(pieces[i], category) ?? "Other";
                     GroupPalette palette = GetPalette(category, label);
                     bool groupStart = !string.Equals(previous, label, StringComparison.Ordinal);
                     GameObject iconRoot = GetIconGameObject(icons[i]!);
@@ -201,7 +218,7 @@ namespace InventoryUX.Runtime
         {
             _appliedHudId = hudInstanceId;
             _appliedCategory = category;
-            _appliedPiecesGeneration = _piecesGeneration;
+            _appliedPiecesGeneration = GetPiecesGeneration(category);
             _appliedPieceCount = pieceCount;
             _appliedShowSeparators = showSeparators;
             _appliedShowPieceNames = showPieceNames;
@@ -219,6 +236,7 @@ namespace InventoryUX.Runtime
             _visualWidth = GridWidth;
             _visualHeight = GridHeight;
             _repairLogicalIndex = -1;
+            _categoryHeaderBackgroundForPass = null;
         }
 
         internal static bool TryNavigate(PieceTable table, int horizontal, int vertical)
@@ -483,7 +501,7 @@ namespace InventoryUX.Runtime
             {
                 Piece piece = pieces[sourceIndices[i]];
                 PieceGroup group = HammerOrganizer.Classify(piece, category);
-                string label = HammerOrganizer.GetLabel(piece) ?? group.Label;
+                string label = HammerOrganizer.GetLabel(piece, category) ?? group.Label;
                 labels[i] = label;
                 subgroups[i] = group.Suborder;
                 if (i == 0 || string.Equals(previousLabel, label, StringComparison.Ordinal))
@@ -883,8 +901,22 @@ namespace InventoryUX.Runtime
 
         private static void AddReferenceTile(Hud hud, GameObject iconRoot, Piece piece)
         {
-            var nameObject = new GameObject(Prefix + "CraftingPieceName", typeof(RectTransform), typeof(TextMeshProUGUI));
-            nameObject.transform.SetParent(iconRoot.transform, false);
+            Transform? existing = iconRoot.transform.Find(Prefix + "CraftingPieceName");
+            GameObject nameObject;
+            if (existing != null)
+            {
+                nameObject = existing.gameObject;
+                nameObject.SetActive(true);
+            }
+            else
+            {
+                nameObject = new GameObject(
+                    Prefix + "CraftingPieceName",
+                    typeof(RectTransform),
+                    typeof(TextMeshProUGUI));
+                nameObject.transform.SetParent(iconRoot.transform, false);
+            }
+            TrackIconDecoration(nameObject);
             nameObject.transform.SetAsLastSibling();
             var nameRect = (RectTransform)nameObject.transform;
             nameRect.anchorMin = new Vector2(0f, 0f);
@@ -935,19 +967,19 @@ namespace InventoryUX.Runtime
             int rowSpan = 1)
         {
             float spacing = hud.m_pieceIconSpacing;
-            var cardObject = new GameObject(Prefix + "CraftingCategory_" + row,
-                typeof(RectTransform), typeof(Image));
-            cardObject.transform.SetParent(hud.m_pieceListRoot, false);
+            CategoryCardView cardView = AcquireCategoryCard(hud);
+            GameObject cardObject = cardView.Root;
+            cardObject.name = Prefix + "CraftingCategory_" + row;
             cardObject.transform.SetAsLastSibling();
-            var cardRect = (RectTransform)cardObject.transform;
+            var cardRect = cardView.Rect;
             cardRect.anchorMin = templateRect.anchorMin;
             cardRect.anchorMax = templateRect.anchorMax;
             cardRect.pivot = templateRect.pivot;
             cardRect.anchoredPosition = new Vector2(0f, -row * rowPitch);
             cardRect.sizeDelta = new Vector2(CategoryRailWidth(spacing), rowPitch * rowSpan - 7f);
 
-            Image card = cardObject.GetComponent<Image>();
-            Image? nativeBackground = FindVanillaCategoryHeaderBackground(hud);
+            Image card = cardView.Background;
+            Image? nativeBackground = _categoryHeaderBackgroundForPass;
             if (nativeBackground != null)
             {
                 card.sprite = nativeBackground.sprite;
@@ -961,35 +993,33 @@ namespace InventoryUX.Runtime
             }
             else
             {
+                card.sprite = null;
+                card.overrideSprite = null;
+                card.material = null;
+                card.type = Image.Type.Simple;
                 card.color = new Color(0.20f, 0.20f, 0.20f, 0.70f);
             }
             card.raycastTarget = false;
-            AddRectBorder(cardRect,
-                new Color(0.68f, 0.50f, 0.25f, 0.68f));
 
-            var iconObject = new GameObject(Prefix + "CraftingCategoryIcon", typeof(RectTransform), typeof(Image));
-            iconObject.transform.SetParent(cardRect, false);
-            var iconRect = (RectTransform)iconObject.transform;
+            var iconRect = cardView.IconRect;
             iconRect.anchorMin = new Vector2(0f, 0.5f);
             iconRect.anchorMax = new Vector2(0f, 0.5f);
             iconRect.pivot = new Vector2(0f, 0.5f);
             iconRect.anchoredPosition = new Vector2(8f, 0f);
             iconRect.sizeDelta = new Vector2(56f, 56f);
-            Image icon = iconObject.GetComponent<Image>();
+            Image icon = cardView.Icon;
             icon.sprite = representative.m_icon;
             icon.preserveAspect = true;
             icon.color = Color.white;
             icon.raycastTarget = false;
 
-            var labelObject = new GameObject(Prefix + "CraftingCategoryLabel", typeof(RectTransform), typeof(TextMeshProUGUI));
-            labelObject.transform.SetParent(cardRect, false);
-            var labelRect = (RectTransform)labelObject.transform;
+            var labelRect = cardView.LabelRect;
             labelRect.anchorMin = Vector2.zero;
             labelRect.anchorMax = Vector2.one;
             labelRect.offsetMin = new Vector2(66f, 6f);
             labelRect.offsetMax = new Vector2(-7f, -6f);
 
-            TextMeshProUGUI label = labelObject.GetComponent<TextMeshProUGUI>();
+            TextMeshProUGUI label = cardView.Label;
             label.text = text.ToUpperInvariant();
             label.font = hud.m_pieceDescription != null ? hud.m_pieceDescription.font : null;
             label.fontSize = 12.8f;
@@ -1004,6 +1034,58 @@ namespace InventoryUX.Runtime
             label.outlineWidth = 0.12f;
             label.outlineColor = new Color32(18, 12, 8, 245);
             label.raycastTarget = false;
+        }
+
+        private static CategoryCardView AcquireCategoryCard(Hud hud)
+        {
+            EnsureDecorationPoolOwner(hud);
+            CategoryCardView? card = _usedCategoryCards < CategoryCardPool.Count
+                ? CategoryCardPool[_usedCategoryCards]
+                : null;
+            if (card == null || card.Root == null)
+            {
+                var cardObject = new GameObject(
+                    Prefix + "CraftingCategoryPool",
+                    typeof(RectTransform),
+                    typeof(Image));
+                cardObject.transform.SetParent(hud.m_pieceListRoot, false);
+                var cardRect = (RectTransform)cardObject.transform;
+                Image background = cardObject.GetComponent<Image>();
+                AddRectBorder(cardRect, new Color(0.68f, 0.50f, 0.25f, 0.68f));
+
+                var iconObject = new GameObject(
+                    Prefix + "CraftingCategoryIcon",
+                    typeof(RectTransform),
+                    typeof(Image));
+                iconObject.transform.SetParent(cardRect, false);
+                var iconRect = (RectTransform)iconObject.transform;
+                Image icon = iconObject.GetComponent<Image>();
+
+                var labelObject = new GameObject(
+                    Prefix + "CraftingCategoryLabel",
+                    typeof(RectTransform),
+                    typeof(TextMeshProUGUI));
+                labelObject.transform.SetParent(cardRect, false);
+                var labelRect = (RectTransform)labelObject.transform;
+                TextMeshProUGUI label = labelObject.GetComponent<TextMeshProUGUI>();
+
+                card = new CategoryCardView(
+                    cardObject,
+                    cardRect,
+                    background,
+                    iconRect,
+                    icon,
+                    labelRect,
+                    label);
+                if (_usedCategoryCards < CategoryCardPool.Count)
+                    CategoryCardPool[_usedCategoryCards] = card;
+                else
+                    CategoryCardPool.Add(card);
+            }
+
+            card.Root.SetActive(true);
+            _usedCategoryCards++;
+            return card;
         }
 
         private static Image? FindVanillaCategoryHeaderBackground(Hud hud)
@@ -1059,17 +1141,14 @@ namespace InventoryUX.Runtime
             float startX)
         {
             float spacing = hud.m_pieceIconSpacing;
-            var lineObject = new GameObject(Prefix + "CraftingRowSeparator_" + row,
-                typeof(RectTransform), typeof(Image));
-            lineObject.transform.SetParent(hud.m_pieceListRoot, false);
-            lineObject.transform.SetAsLastSibling();
-            var rect = (RectTransform)lineObject.transform;
+            Image line = AcquireDecorationLine(hud, Prefix + "CraftingRowSeparator_" + row);
+            line.transform.SetAsLastSibling();
+            var rect = (RectTransform)line.transform;
             rect.anchorMin = templateRect.anchorMin;
             rect.anchorMax = templateRect.anchorMax;
             rect.pivot = new Vector2(0f, 0.5f);
             rect.anchoredPosition = new Vector2(startX, -(row + 1f) * rowPitch + 3.5f);
             rect.sizeDelta = new Vector2(GridWidth * spacing - 9f - startX, 1f);
-            Image line = lineObject.GetComponent<Image>();
             line.color = new Color(0.57f, 0.40f, 0.19f, 0.34f);
             line.raycastTarget = false;
         }
@@ -1085,12 +1164,11 @@ namespace InventoryUX.Runtime
             float nextItemX = divider.Column * spacing
                 + CraftingContentShift(nativeSpacing)
                 + divider.GapCount * SubgroupSpacing;
-            var lineObject = new GameObject(
-                Prefix + "CraftingSubgroupSeparator_" + divider.Row + "_" + divider.Column,
-                typeof(RectTransform), typeof(Image));
-            lineObject.transform.SetParent(hud.m_pieceListRoot, false);
-            lineObject.transform.SetAsLastSibling();
-            var rect = (RectTransform)lineObject.transform;
+            Image line = AcquireDecorationLine(
+                hud,
+                Prefix + "CraftingSubgroupSeparator_" + divider.Row + "_" + divider.Column);
+            line.transform.SetAsLastSibling();
+            var rect = (RectTransform)line.transform;
             rect.anchorMin = templateRect.anchorMin;
             rect.anchorMax = templateRect.anchorMax;
             rect.pivot = new Vector2(0.5f, 0.5f);
@@ -1098,7 +1176,6 @@ namespace InventoryUX.Runtime
                 nextItemX - SubgroupLineInset,
                 -divider.Row * rowPitch - rowPitch * 0.5f);
             rect.sizeDelta = new Vector2(1f, rowPitch - 20f);
-            Image line = lineObject.GetComponent<Image>();
             line.color = new Color(0.62f, 0.47f, 0.25f, 0.42f);
             line.raycastTarget = false;
         }
@@ -1109,12 +1186,11 @@ namespace InventoryUX.Runtime
             ShelfDivider divider,
             float rowPitch)
         {
-            var lineObject = new GameObject(
-                Prefix + "CraftingShelfDivider_" + divider.Row + "_" + divider.X,
-                typeof(RectTransform), typeof(Image));
-            lineObject.transform.SetParent(hud.m_pieceListRoot, false);
-            lineObject.transform.SetAsLastSibling();
-            var rect = (RectTransform)lineObject.transform;
+            Image line = AcquireDecorationLine(
+                hud,
+                Prefix + "CraftingShelfDivider_" + divider.Row + "_" + divider.X);
+            line.transform.SetAsLastSibling();
+            var rect = (RectTransform)line.transform;
             rect.anchorMin = templateRect.anchorMin;
             rect.anchorMax = templateRect.anchorMax;
             rect.pivot = new Vector2(0.5f, 0.5f);
@@ -1122,9 +1198,72 @@ namespace InventoryUX.Runtime
                 divider.X,
                 -divider.Row * rowPitch - rowPitch * 0.5f);
             rect.sizeDelta = new Vector2(1f, rowPitch - 20f);
-            Image line = lineObject.GetComponent<Image>();
             line.color = new Color(0.62f, 0.47f, 0.25f, 0.42f);
             line.raycastTarget = false;
+        }
+
+        private static Image AcquireDecorationLine(Hud hud, string name)
+        {
+            EnsureDecorationPoolOwner(hud);
+            Image? line = _usedDecorationLines < DecorationLinePool.Count
+                ? DecorationLinePool[_usedDecorationLines]
+                : null;
+            if (line == null)
+            {
+                var lineObject = new GameObject(name, typeof(RectTransform), typeof(Image));
+                lineObject.transform.SetParent(hud.m_pieceListRoot, false);
+                line = lineObject.GetComponent<Image>();
+                if (_usedDecorationLines < DecorationLinePool.Count)
+                    DecorationLinePool[_usedDecorationLines] = line;
+                else
+                    DecorationLinePool.Add(line);
+            }
+
+            line.gameObject.name = name;
+            line.gameObject.SetActive(true);
+            _usedDecorationLines++;
+            return line;
+        }
+
+        private static void EnsureDecorationPoolOwner(Hud hud)
+        {
+            int hudId = hud.GetInstanceID();
+            if (_decorationPoolHudId == hudId) return;
+            DestroyDecorationPool();
+            _decorationPoolHudId = hudId;
+        }
+
+        private static void DeactivateDecorationPool()
+        {
+            for (int i = 0; i < CategoryCardPool.Count; i++)
+            {
+                CategoryCardView card = CategoryCardPool[i];
+                if (card != null && card.Root != null) card.Root.SetActive(false);
+            }
+            for (int i = 0; i < DecorationLinePool.Count; i++)
+            {
+                if (DecorationLinePool[i] != null) DecorationLinePool[i].gameObject.SetActive(false);
+            }
+            _usedCategoryCards = 0;
+            _usedDecorationLines = 0;
+        }
+
+        private static void DestroyDecorationPool()
+        {
+            for (int i = 0; i < CategoryCardPool.Count; i++)
+            {
+                CategoryCardView card = CategoryCardPool[i];
+                if (card != null && card.Root != null) UnityEngine.Object.Destroy(card.Root);
+            }
+            for (int i = 0; i < DecorationLinePool.Count; i++)
+            {
+                if (DecorationLinePool[i] != null) UnityEngine.Object.Destroy(DecorationLinePool[i].gameObject);
+            }
+            CategoryCardPool.Clear();
+            DecorationLinePool.Clear();
+            _usedCategoryCards = 0;
+            _usedDecorationLines = 0;
+            _decorationPoolHudId = int.MinValue;
         }
 
         private static void ConfigureNativePieceCells(
@@ -1740,6 +1879,7 @@ namespace InventoryUX.Runtime
         internal static void Shutdown()
         {
             Release(Hud.instance);
+            Array.Clear(PieceGenerations, 0, PieceGenerations.Length);
             UseModView = true;
         }
 
@@ -1748,10 +1888,14 @@ namespace InventoryUX.Runtime
             Exception? failure = null;
             try
             {
-                if (hud != null && _stateValid && _appliedHudId == hud.GetInstanceID())
+                if (hud != null)
                 {
                     IList icons = (IList)PieceIconsField.GetValue(hud);
-                    RemoveDecorations(hud, icons);
+                    RemoveDecorations(hud, icons, true);
+                }
+                else
+                {
+                    DestroyDecorationPool();
                 }
             }
             catch (Exception exception)
@@ -1814,7 +1958,7 @@ namespace InventoryUX.Runtime
             if (failure != null) throw new InvalidOperationException("Could not fully release CraftGuard Hammer UI.", failure);
         }
 
-        private static void RemoveDecorations(Hud hud, IList icons)
+        private static void RemoveDecorations(Hud hud, IList icons, bool destroy = false)
         {
             if (_hiddenRepairRoot != null)
             {
@@ -1822,33 +1966,68 @@ namespace InventoryUX.Runtime
                 _hiddenRepairRoot = null;
             }
             RestoreNativeCraftingCells();
+            DeactivateDecorationPool();
 
             for (int childIndex = hud.m_pieceListRoot.childCount - 1; childIndex >= 0; childIndex--)
             {
                 Transform child = hud.m_pieceListRoot.GetChild(childIndex);
                 if (!child.name.StartsWith(Prefix + "Crafting", StringComparison.Ordinal)) continue;
+                if (IsPooledDecorationRoot(child.gameObject)) continue;
                 child.gameObject.SetActive(false);
                 UnityEngine.Object.Destroy(child.gameObject);
             }
 
             RestoreNativeGrid(hud, icons);
-            for (int i = 0; i < icons.Count; i++)
+            for (int i = 0; i < IconDecorationPool.Count; i++)
             {
-                Transform root = GetIconGameObject(icons[i]!).transform;
-                for (int childIndex = root.childCount - 1; childIndex >= 0; childIndex--)
-                {
-                    Transform child = root.GetChild(childIndex);
-                    if (!child.name.StartsWith(Prefix, StringComparison.Ordinal)) continue;
-                    child.gameObject.SetActive(false);
-                    UnityEngine.Object.Destroy(child.gameObject);
-                }
+                GameObject decoration = IconDecorationPool[i];
+                if (decoration == null) continue;
+                decoration.SetActive(false);
+                if (destroy) UnityEngine.Object.Destroy(decoration);
             }
+            if (destroy)
+            {
+                IconDecorationPool.Clear();
+                IconDecorationIds.Clear();
+            }
+
+            if (destroy) DestroyDecorationPool();
+        }
+
+        private static void TrackIconDecoration(GameObject decoration)
+        {
+            if (IconDecorationIds.Add(decoration.GetInstanceID())) IconDecorationPool.Add(decoration);
+        }
+
+        private static bool IsPooledDecorationRoot(GameObject root)
+        {
+            for (int i = 0; i < CategoryCardPool.Count; i++)
+            {
+                CategoryCardView card = CategoryCardPool[i];
+                if (card != null && card.Root == root) return true;
+            }
+            for (int i = 0; i < DecorationLinePool.Count; i++)
+            {
+                if (DecorationLinePool[i] != null && DecorationLinePool[i].gameObject == root) return true;
+            }
+            return false;
         }
 
         private static void AddTileTint(GameObject iconRoot, GroupPalette palette, bool groupStart)
         {
-            var tintObject = new GameObject(Prefix + "TileTint", typeof(RectTransform), typeof(Image));
-            tintObject.transform.SetParent(iconRoot.transform, false);
+            Transform? existing = iconRoot.transform.Find(Prefix + "TileTint");
+            GameObject tintObject;
+            if (existing != null)
+            {
+                tintObject = existing.gameObject;
+                tintObject.SetActive(true);
+            }
+            else
+            {
+                tintObject = new GameObject(Prefix + "TileTint", typeof(RectTransform), typeof(Image));
+                tintObject.transform.SetParent(iconRoot.transform, false);
+            }
+            TrackIconDecoration(tintObject);
             tintObject.transform.SetAsFirstSibling();
             var rect = (RectTransform)tintObject.transform;
             rect.anchorMin = Vector2.zero;
@@ -1871,8 +2050,22 @@ namespace InventoryUX.Runtime
 
         private static void AddLabel(Hud hud, GameObject iconRoot, string label, GroupPalette palette)
         {
-            var labelObject = new GameObject(Prefix + "GroupLabel", typeof(RectTransform), typeof(TextMeshProUGUI));
-            labelObject.transform.SetParent(iconRoot.transform, false);
+            Transform? existing = iconRoot.transform.Find(Prefix + "GroupLabel");
+            GameObject labelObject;
+            if (existing != null)
+            {
+                labelObject = existing.gameObject;
+                labelObject.SetActive(true);
+            }
+            else
+            {
+                labelObject = new GameObject(
+                    Prefix + "GroupLabel",
+                    typeof(RectTransform),
+                    typeof(TextMeshProUGUI));
+                labelObject.transform.SetParent(iconRoot.transform, false);
+            }
+            TrackIconDecoration(labelObject);
             labelObject.transform.SetAsLastSibling();
             var rect = (RectTransform)labelObject.transform;
             rect.anchorMin = new Vector2(0f, 0f);
@@ -2141,6 +2334,35 @@ namespace InventoryUX.Runtime
             }
             internal Color Text { get; }
             internal Color Background { get; }
+        }
+
+        private sealed class CategoryCardView
+        {
+            internal CategoryCardView(
+                GameObject root,
+                RectTransform rect,
+                Image background,
+                RectTransform iconRect,
+                Image icon,
+                RectTransform labelRect,
+                TextMeshProUGUI label)
+            {
+                Root = root;
+                Rect = rect;
+                Background = background;
+                IconRect = iconRect;
+                Icon = icon;
+                LabelRect = labelRect;
+                Label = label;
+            }
+
+            internal GameObject Root { get; }
+            internal RectTransform Rect { get; }
+            internal Image Background { get; }
+            internal RectTransform IconRect { get; }
+            internal Image Icon { get; }
+            internal RectTransform LabelRect { get; }
+            internal TextMeshProUGUI Label { get; }
         }
     }
 }

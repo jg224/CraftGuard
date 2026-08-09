@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.3 - 2026-08-09
+
+- Filters crafting searches against cached recipe rows instead of rebuilding Valheim's entire crafting panel on every keystroke.
+- Preserves the input field's native focus and caret handling so typed characters remain in the correct order.
+- Caches Hammer classification and sorted category results per build tool, then refreshes only categories whose available pieces changed.
+- Reuses Hammer category cards, dividers, tile tints, labels, and recipe-list headings instead of repeatedly creating and destroying UI objects.
+- Precomputes each crafting-station view order once and reuses a single search-results buffer while typing.
+- Avoids refreshing recipe details when the currently selected recipe remains visible after filtering.
+- Initializes prepared-food conversion data only for confirmed food stations and caches resolved results per food item.
+- Replaces repeated hierarchy checks in the global input guard with an event-maintained search-focus flag.
+- Removes the dormant per-frame diagnostics poll and runs the optional data export from scene initialization events.
+
 ## 0.2.2 - 2026-08-09
 
 - Adds a CraftGuard menu showcase to the top of the Thunderstore Details page.

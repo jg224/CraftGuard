@@ -163,6 +163,7 @@ namespace InventoryUX.CoreTests
             Equal(true, RecipeSearch.Matches(sword, "SwordBronze"), "Prefab-id search");
             Equal(false, RecipeSearch.Matches(sword, "silver"), "Unmatched future term");
             Equal(true, RecipeSearch.Matches(sword, ""), "Empty search");
+            Equal(true, RecipeSearch.MatchesPrepared(sword, "bronze"), "Prepared search query");
         }
 
         private static void MiscShelfSmokeTestCompletesAllRows()

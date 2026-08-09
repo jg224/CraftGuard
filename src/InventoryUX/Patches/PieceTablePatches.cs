@@ -53,7 +53,6 @@ namespace InventoryUX.Patches
             try
             {
                 HammerOrganizer.ReorderAvailablePieces(__instance);
-                HammerGroupDecorations.NotifyPiecesChanged();
                 HammerPatchHealth.Organization.Reset();
                 HammerPatchHealth.Decoration.Reset();
             }
@@ -118,6 +117,33 @@ namespace InventoryUX.Patches
         private static void Prefix()
         {
             FoodStatsResolver.Reset();
+            HammerOrganizer.Reset();
+        }
+    }
+
+    [HarmonyPatch(typeof(ZNetScene), "Awake")]
+    internal static class ZNetSceneDiagnosticsPatch
+    {
+        private static void Postfix()
+        {
+            TryWriteDataInventory();
+        }
+
+        internal static void TryWriteDataInventory()
+        {
+            if (ModConfig.Enabled.Value && ModConfig.WriteDataInventoryOnStartup.Value)
+            {
+                DataInventoryWriter.TryWriteOnce();
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(ObjectDB), "Awake")]
+    internal static class ObjectDbDiagnosticsPatch
+    {
+        private static void Postfix()
+        {
+            ZNetSceneDiagnosticsPatch.TryWriteDataInventory();
         }
     }
 
