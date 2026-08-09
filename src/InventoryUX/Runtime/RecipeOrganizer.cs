@@ -28,8 +28,16 @@ namespace InventoryUX.Runtime
         private static readonly Color SearchBrown = new Color(0.18f, 0.125f, 0.075f, 0.98f);
 
         private static readonly FieldInfo AvailableRecipesField = AccessTools.Field(typeof(InventoryGui), "m_availableRecipes");
+        private static readonly FieldInfo SelectedRecipeField = AccessTools.Field(typeof(InventoryGui), "m_selectedRecipe");
         private static readonly FieldInfo RecipeListBaseSizeField = AccessTools.Field(typeof(InventoryGui), "m_recipeListBaseSize");
-        private static readonly MethodInfo RefreshMethod = AccessTools.Method(typeof(InventoryGui), "UpdateCraftingPanel");
+        private static readonly MethodInfo GetSelectedRecipeIndexMethod = AccessTools.Method(
+            typeof(InventoryGui),
+            "GetSelectedRecipeIndex",
+            new[] { typeof(bool) });
+        private static readonly MethodInfo SetRecipeMethod = AccessTools.Method(
+            typeof(InventoryGui),
+            "SetRecipe",
+            new[] { typeof(int), typeof(bool) });
 
         private static Type? _pairType;
         private static PropertyInfo? _recipeProperty;
@@ -38,12 +46,22 @@ namespace InventoryUX.Runtime
         private static string _searchText = string.Empty;
         private static string _activeStationKey = string.Empty;
         private static bool _searchHasFocus;
+        private static InventoryGui? _cachedRecipeOwner;
+        private static List<RecipePairView>? _cachedRecipeViews;
+        private static List<RecipePairView>? _orderedRecipeViews;
+        private static readonly List<RecipePairView> VisibleRecipeScratch = new List<RecipePairView>();
+        private static int _cachedOrderingKey = int.MinValue;
+        private static StationRecipeContext _cachedRecipeContext;
+        private static FoodStationKind _cachedFoodStationKind;
+        private static RectTransform? _contentPoolOwner;
+        private static readonly List<TMP_Text> ContentTextPool = new List<TMP_Text>();
+        private static readonly List<Image> ContentLinePool = new List<Image>();
+        private static int _usedContentTexts;
+        private static int _usedContentLines;
 
-        internal static bool IsSearchFocused
-            => _searchHasFocus
-                && _fixedControls != null
-                && _fixedControls.SearchRoot != null
-                && _fixedControls.SearchRoot.activeInHierarchy;
+        // Input patches run many times per frame. Event handlers keep this flag
+        // authoritative so those patches never need to query Unity hierarchy state.
+        internal static bool IsSearchFocused => _searchHasFocus;
 
         internal static void Organize(InventoryGui gui)
         {
@@ -63,6 +81,7 @@ namespace InventoryUX.Runtime
 
             PrepareStationSearch(station);
             FoodStationKind foodStationKind = GetFoodStationKind(station);
+            bool resolveFoodStats = GuessContextFromStation(station) == StationRecipeContext.Food;
 
             IList pairs = (IList)AvailableRecipesField.GetValue(gui);
             if (pairs.Count == 0)
@@ -71,7 +90,8 @@ namespace InventoryUX.Runtime
                 EnsureFixedControls(gui, emptyContext);
                 SetFixedControlsVisible(true);
                 UpdateModeAppearance();
-                Render(gui, Array.Empty<RecipePairView>(), emptyContext, foodStationKind, false);
+                CacheRecipeViews(gui, new List<RecipePairView>(), emptyContext, foodStationKind);
+                ApplyCachedRecipeView(gui);
                 return;
             }
 
@@ -90,37 +110,113 @@ namespace InventoryUX.Runtime
                     return;
                 }
 
-                allViews.Add(new RecipePairView(pair, element, ReadFacts(recipe, i, foodStationKind)));
+                allViews.Add(new RecipePairView(
+                    pair,
+                    element,
+                    recipe,
+                    ReadFacts(recipe, i, foodStationKind, resolveFoodStats)));
             }
 
             StationRecipeContext context = ClassifyContext(station, allViews);
+            if (context == StationRecipeContext.Food && !resolveFoodStats)
+            {
+                // A modded food station may not use a recognizable station name.
+                // Resolve its prepared-food mappings only after its recipes prove
+                // that it is a food station, keeping equipment stations scan-free.
+                for (int i = 0; i < allViews.Count; i++)
+                {
+                    allViews[i].Facts = ReadFacts(allViews[i].Recipe, i, foodStationKind, true);
+                }
+            }
             EnsureFixedControls(gui, context);
             SetFixedControlsVisible(true);
             UpdateModeAppearance();
 
-            var visibleViews = new List<RecipePairView>(allViews.Count);
-            for (int i = 0; i < allViews.Count; i++)
+            CacheRecipeViews(gui, allViews, context, foodStationKind);
+            ApplyCachedRecipeView(gui);
+        }
+
+        internal static void PrepareForVanillaRecipeRefresh(InventoryGui gui)
+        {
+            RestoreCachedRecipeList(gui);
+        }
+
+        private static void CacheRecipeViews(
+            InventoryGui gui,
+            List<RecipePairView> views,
+            StationRecipeContext context,
+            FoodStationKind foodStationKind)
+        {
+            _cachedRecipeOwner = gui;
+            _cachedRecipeViews = views;
+            _orderedRecipeViews = null;
+            _cachedOrderingKey = int.MinValue;
+            _cachedRecipeContext = context;
+            _cachedFoodStationKind = foodStationKind;
+        }
+
+        private static void ApplyCachedRecipeView(InventoryGui gui)
+        {
+            if (_cachedRecipeViews == null || !ReferenceEquals(_cachedRecipeOwner, gui)) return;
+
+            BeginContentDecorationPass(gui.m_recipeListRoot);
+            IList pairs = (IList)AvailableRecipesField.GetValue(gui);
+            List<RecipePairView> allViews = _cachedRecipeViews;
+            StationRecipeContext context = _cachedRecipeContext;
+            FoodStationKind foodStationKind = _cachedFoodStationKind;
+            List<RecipePairView> orderedViews = EnsureRecipeOrdering(allViews, context, foodStationKind);
+
+            VisibleRecipeScratch.Clear();
+            if (VisibleRecipeScratch.Capacity < orderedViews.Count)
             {
-                RecipePairView view = allViews[i];
-                if (RecipeSearch.Matches(view.Facts, _searchText))
+                VisibleRecipeScratch.Capacity = orderedViews.Count;
+            }
+            string preparedSearch = _searchText.Trim();
+            for (int i = 0; i < orderedViews.Count; i++)
+            {
+                RecipePairView view = orderedViews[i];
+                bool visible = view.Element != null && RecipeSearch.MatchesPrepared(view.Facts, preparedSearch);
+                if (view.Element != null)
                 {
-                    visibleViews.Add(view);
+                    view.Element.SetActive(visible);
                 }
-                else
+
+                if (visible)
                 {
-                    view.Element.SetActive(false);
-                    UnityEngine.Object.Destroy(view.Element);
+                    VisibleRecipeScratch.Add(view);
                 }
             }
 
-            bool grouped;
-            if (context == StationRecipeContext.Food)
+            bool grouped = IsGrouped(context);
+            pairs.Clear();
+            for (int i = 0; i < VisibleRecipeScratch.Count; i++)
+            {
+                pairs.Add(VisibleRecipeScratch[i].Pair);
+            }
+
+            Render(gui, VisibleRecipeScratch, context, foodStationKind, grouped);
+            UpdateSelectedRecipe(gui, VisibleRecipeScratch);
+        }
+
+        private static List<RecipePairView> EnsureRecipeOrdering(
+            List<RecipePairView> allViews,
+            StationRecipeContext context,
+            FoodStationKind foodStationKind)
+        {
+            int orderingKey = GetOrderingKey(context, foodStationKind);
+            if (_orderedRecipeViews != null && _cachedOrderingKey == orderingKey)
+            {
+                return _orderedRecipeViews;
+            }
+
+            var ordered = new List<RecipePairView>(allViews);
+            bool grouped = IsGrouped(context);
+            if (grouped && context == StationRecipeContext.Food)
             {
                 FoodGroupingMode mode = ModConfig.FoodMode;
-                grouped = mode != FoodGroupingMode.Default;
-                for (int i = 0; i < visibleViews.Count; i++)
+                for (int i = 0; i < ordered.Count; i++)
                 {
-                    RecipePairView view = visibleViews[i];
+                    RecipePairView view = ordered[i];
                     RecipeGroup biome = BiomeClassifier.GetGroup(view.Facts);
                     RecipeGroup stat;
                     if (foodStationKind == FoodStationKind.Mead)
@@ -144,13 +240,12 @@ namespace InventoryUX.Runtime
                         : 0f;
                 }
             }
-            else
+            else if (grouped)
             {
                 EquipmentGroupingMode mode = ModConfig.EquipmentMode;
-                grouped = mode != EquipmentGroupingMode.Default;
-                for (int i = 0; i < visibleViews.Count; i++)
+                for (int i = 0; i < ordered.Count; i++)
                 {
-                    RecipePairView view = visibleViews[i];
+                    RecipePairView view = ordered[i];
                     RecipeGroup type = RecipeClassifier.GetTypeGroup(view.Facts);
                     RecipeGroup biome = BiomeClassifier.GetGroup(view.Facts);
                     view.Group = mode == EquipmentGroupingMode.Biome ? biome : type;
@@ -158,21 +253,30 @@ namespace InventoryUX.Runtime
                 }
             }
 
-            if (grouped) visibleViews.Sort(CompareViews);
+            if (grouped) ordered.Sort(CompareViews);
+            _orderedRecipeViews = ordered;
+            _cachedOrderingKey = orderingKey;
+            return ordered;
+        }
 
-            pairs.Clear();
-            for (int i = 0; i < visibleViews.Count; i++)
-            {
-                pairs.Add(visibleViews[i].Pair);
-            }
+        private static bool IsGrouped(StationRecipeContext context)
+            => context == StationRecipeContext.Food
+                ? ModConfig.FoodMode != FoodGroupingMode.Default
+                : ModConfig.EquipmentMode != EquipmentGroupingMode.Default;
 
-            Render(gui, visibleViews, context, foodStationKind, grouped);
+        private static int GetOrderingKey(StationRecipeContext context, FoodStationKind foodStationKind)
+        {
+            int mode = context == StationRecipeContext.Food
+                ? (int)ModConfig.FoodMode
+                : (int)ModConfig.EquipmentMode;
+            return ((int)context << 16) ^ ((int)foodStationKind << 8) ^ mode;
         }
 
         internal static void Cleanup(InventoryGui gui)
         {
             if (gui.m_recipeListRoot != null)
             {
+                RestoreCachedRecipeList(gui);
                 ClearContentDecorations(gui.m_recipeListRoot);
             }
 
@@ -186,6 +290,7 @@ namespace InventoryUX.Runtime
             {
                 if (gui != null && gui.m_recipeListRoot != null)
                 {
+                    RestoreCachedRecipeList(gui);
                     ClearContentDecorations(gui.m_recipeListRoot);
                 }
             }
@@ -205,6 +310,18 @@ namespace InventoryUX.Runtime
             {
                 failure = failure == null ? exception : new AggregateException(failure, exception);
             }
+
+            try
+            {
+                if (_contentPoolOwner == null || gui == null || _contentPoolOwner == gui.m_recipeListRoot)
+                {
+                    DestroyContentPool();
+                }
+            }
+            catch (Exception exception)
+            {
+                failure = failure == null ? exception : new AggregateException(failure, exception);
+            }
             finally
             {
                 ResetTransientState();
@@ -218,6 +335,7 @@ namespace InventoryUX.Runtime
             try
             {
                 DestroyFixedControls();
+                DestroyContentPool();
             }
             finally
             {
@@ -225,6 +343,7 @@ namespace InventoryUX.Runtime
                 _pairType = null;
                 _recipeProperty = null;
                 _elementProperty = null;
+                ClearRecipeCache();
             }
         }
 
@@ -349,7 +468,10 @@ namespace InventoryUX.Runtime
                 && _fixedControls.ModeRoot != null
                 && _fixedControls.SearchRoot != null)
             {
-                _fixedControls.SearchInput.SetTextWithoutNotify(_searchText);
+                if (!string.Equals(_fixedControls.SearchInput.text, _searchText, StringComparison.Ordinal))
+                {
+                    _fixedControls.SearchInput.SetTextWithoutNotify(_searchText);
+                }
                 _fixedControls.SearchRoot.transform.SetAsLastSibling();
                 return;
             }
@@ -439,7 +561,7 @@ namespace InventoryUX.Runtime
                 }
 
                 UpdateModeAppearance();
-                Refresh(gui);
+                ApplyCachedRecipeView(gui);
             });
 
             TMP_Text label = CreateText(gui, rect, FixedPrefix + "ModeLabel", caption, Vector2.zero, Vector2.zero,
@@ -517,31 +639,12 @@ namespace InventoryUX.Runtime
             searchInput.onEndEdit.AddListener(_ => _searchHasFocus = false);
             searchInput.onValueChanged.AddListener(value =>
             {
-                bool retainFocus = _searchHasFocus || searchInput.isFocused;
-                int caretPosition = searchInput.caretPosition;
-                int anchorPosition = searchInput.selectionAnchorPosition;
-                int focusPosition = searchInput.selectionFocusPosition;
-                _searchText = value ?? string.Empty;
-                Refresh(gui);
+                string nextValue = value ?? string.Empty;
+                if (string.Equals(_searchText, nextValue, StringComparison.Ordinal)) return;
 
-                // Updating Valheim's recipe panel can replace its selected
-                // recipe button and make the EventSystem drop the input field.
-                // Reclaim selection synchronously so the next key cannot leak
-                // through as Use, Guardian Power, movement, or another action.
-                if (retainFocus
-                    && searchInput != null
-                    && searchInput.gameObject.activeInHierarchy
-                    && _fixedControls != null
-                    && ReferenceEquals(_fixedControls.SearchInput, searchInput))
-                {
-                    searchInput.Select();
-                    searchInput.ActivateInputField();
-                    int textLength = searchInput.text != null ? searchInput.text.Length : 0;
-                    searchInput.caretPosition = Mathf.Clamp(caretPosition, 0, textLength);
-                    searchInput.selectionAnchorPosition = Mathf.Clamp(anchorPosition, 0, textLength);
-                    searchInput.selectionFocusPosition = Mathf.Clamp(focusPosition, 0, textLength);
-                    _searchHasFocus = true;
-                }
+                _searchText = nextValue;
+                ApplyCachedRecipeView(gui);
+                _searchHasFocus = searchInput != null && searchInput.isFocused;
             });
 
             CreateClearSearchButton(gui, searchRect, input);
@@ -596,7 +699,7 @@ namespace InventoryUX.Runtime
             {
                 _searchText = string.Empty;
                 input.SetTextWithoutNotify(string.Empty);
-                Refresh(gui);
+                ApplyCachedRecipeView(gui);
             });
 
             CreateText(gui, rect, FixedPrefix + "SearchClearLabel", "×", Vector2.zero, Vector2.zero,
@@ -695,6 +798,7 @@ namespace InventoryUX.Runtime
             _searchText = string.Empty;
             _activeStationKey = string.Empty;
             _searchHasFocus = false;
+            ClearRecipeCache();
         }
 
         private static void UpdateModeAppearance()
@@ -732,31 +836,30 @@ namespace InventoryUX.Runtime
 
         private static void CreateHeader(InventoryGui gui, RectTransform root, string label, float y)
         {
-            TMP_Text text = CreateText(gui, root, ContentPrefix + "Header_" + label, label.ToUpperInvariant(),
-                new Vector2(4f, -y), new Vector2(0f, HeaderHeight), 13f, Gold, TextAlignmentOptions.MidlineLeft);
+            TMP_Text text = AcquireContentText(gui, root, ContentPrefix + "Header_" + label);
+            ConfigureText(text, gui, label.ToUpperInvariant(), new Vector2(4f, -y),
+                new Vector2(0f, HeaderHeight), 13f, Gold, TextAlignmentOptions.MidlineLeft, false);
             RectTransform rect = (RectTransform)text.transform;
             rect.anchorMax = new Vector2(1f, 1f);
             rect.sizeDelta = new Vector2(-8f, HeaderHeight);
 
             if (!ModConfig.ShowSeparators.Value) return;
-            var lineObject = new GameObject(ContentPrefix + "HeaderLine", typeof(RectTransform), typeof(Image));
-            lineObject.transform.SetParent(root, false);
-            var lineRect = (RectTransform)lineObject.transform;
+            Image line = AcquireContentLine(root, ContentPrefix + "HeaderLine");
+            var lineRect = (RectTransform)line.transform;
             lineRect.anchorMin = new Vector2(0f, 1f);
             lineRect.anchorMax = new Vector2(1f, 1f);
             lineRect.pivot = new Vector2(0f, 1f);
             lineRect.anchoredPosition = new Vector2(4f, -(y + HeaderHeight - 2f));
             lineRect.sizeDelta = new Vector2(-8f, 1f);
-            Image line = lineObject.GetComponent<Image>();
             line.color = new Color(Gold.r, Gold.g, Gold.b, 0.45f);
             line.raycastTarget = false;
         }
 
         private static void CreateStatus(InventoryGui gui, RectTransform root, string label, float y)
         {
-            TMP_Text text = CreateText(gui, root, ContentPrefix + "Status", label,
-                new Vector2(4f, -y), new Vector2(0f, HeaderHeight), 12f,
-                new Color(0.72f, 0.69f, 0.62f), TextAlignmentOptions.MidlineLeft);
+            TMP_Text text = AcquireContentText(gui, root, ContentPrefix + "Status");
+            ConfigureText(text, gui, label, new Vector2(4f, -y), new Vector2(0f, HeaderHeight), 12f,
+                new Color(0.72f, 0.69f, 0.62f), TextAlignmentOptions.MidlineLeft, false);
             RectTransform rect = (RectTransform)text.transform;
             rect.anchorMax = new Vector2(1f, 1f);
             rect.sizeDelta = new Vector2(-8f, HeaderHeight);
@@ -809,20 +912,22 @@ namespace InventoryUX.Runtime
                 stats.outlineColor = new Color32(25, 15, 10, 230);
             }
 
-            var parts = new List<string>(3);
+            string parts = string.Empty;
             if (view.Facts.Health > 0f)
             {
-                parts.Add("<color=#FF9C7A>HP " + Mathf.RoundToInt(view.Facts.Health) + "</color>");
+                parts = "<color=#FF9C7A>HP " + Mathf.RoundToInt(view.Facts.Health) + "</color>";
             }
             if (view.Facts.Stamina > 0f)
             {
-                parts.Add("<color=#FFE071>STAM " + Mathf.RoundToInt(view.Facts.Stamina) + "</color>");
+                if (parts.Length > 0) parts += "   ";
+                parts += "<color=#FFE071>STAM " + Mathf.RoundToInt(view.Facts.Stamina) + "</color>";
             }
             if (view.Facts.Eitr > 0f)
             {
-                parts.Add("<color=#D7A5FF>EITR " + Mathf.RoundToInt(view.Facts.Eitr) + "</color>");
+                if (parts.Length > 0) parts += "   ";
+                parts += "<color=#D7A5FF>EITR " + Mathf.RoundToInt(view.Facts.Eitr) + "</color>";
             }
-            stats.text = string.Join("   ", parts);
+            stats.text = parts;
         }
 
         private static TMP_Text CreateText(
@@ -858,7 +963,38 @@ namespace InventoryUX.Runtime
             return text;
         }
 
-        private static RecipeFacts ReadFacts(Recipe recipe, int originalIndex, FoodStationKind foodStationKind)
+        private static void ConfigureText(
+            TMP_Text text,
+            InventoryGui gui,
+            string content,
+            Vector2 position,
+            Vector2 size,
+            float fontSize,
+            Color color,
+            TextAlignmentOptions alignment,
+            bool stretch)
+        {
+            RectTransform rect = (RectTransform)text.transform;
+            rect.anchorMin = stretch ? Vector2.zero : new Vector2(0f, 1f);
+            rect.anchorMax = stretch ? Vector2.one : new Vector2(0f, 1f);
+            rect.pivot = stretch ? new Vector2(0.5f, 0.5f) : new Vector2(0f, 1f);
+            rect.anchoredPosition = position;
+            rect.sizeDelta = size;
+            text.text = content;
+            text.font = gui.m_recipeName != null ? gui.m_recipeName.font : null;
+            text.fontSize = fontSize;
+            text.fontStyle = FontStyles.Bold;
+            text.color = color;
+            text.alignment = alignment;
+            text.textWrappingMode = TextWrappingModes.NoWrap;
+            text.raycastTarget = false;
+        }
+
+        private static RecipeFacts ReadFacts(
+            Recipe recipe,
+            int originalIndex,
+            FoodStationKind foodStationKind,
+            bool resolveFoodStats)
         {
             ItemDrop.ItemData.SharedData shared = recipe.m_item.m_itemData.m_shared;
             var ingredients = new List<string>();
@@ -876,7 +1012,7 @@ namespace InventoryUX.Runtime
             }
 
             string displayName = Localization.instance != null ? Localization.instance.Localize(shared.m_name) : shared.m_name;
-            ResolvedFoodStats resolved = foodStationKind != FoodStationKind.Mead
+            ResolvedFoodStats resolved = resolveFoodStats && foodStationKind != FoodStationKind.Mead
                 ? FoodStatsResolver.Resolve(recipe.m_item)
                 : default;
             float health = resolved.Resolved ? resolved.Health : shared.m_food;
@@ -899,37 +1035,193 @@ namespace InventoryUX.Runtime
             }
         }
 
+        private static void BeginContentDecorationPass(RectTransform root)
+        {
+            EnsureContentPoolOwner(root);
+            DeactivateContentPool();
+            _usedContentTexts = 0;
+            _usedContentLines = 0;
+        }
+
+        private static TMP_Text AcquireContentText(InventoryGui gui, RectTransform root, string name)
+        {
+            EnsureContentPoolOwner(root);
+            TMP_Text? text = _usedContentTexts < ContentTextPool.Count
+                ? ContentTextPool[_usedContentTexts]
+                : null;
+            if (text == null)
+            {
+                text = CreateText(gui, root, name, string.Empty, Vector2.zero, Vector2.zero,
+                    12f, Color.white, TextAlignmentOptions.MidlineLeft);
+                if (_usedContentTexts < ContentTextPool.Count)
+                    ContentTextPool[_usedContentTexts] = text;
+                else
+                    ContentTextPool.Add(text);
+            }
+            text.gameObject.name = name;
+            text.gameObject.SetActive(true);
+            text.transform.SetAsLastSibling();
+            _usedContentTexts++;
+            return text;
+        }
+
+        private static Image AcquireContentLine(RectTransform root, string name)
+        {
+            EnsureContentPoolOwner(root);
+            Image? image = _usedContentLines < ContentLinePool.Count
+                ? ContentLinePool[_usedContentLines]
+                : null;
+            if (image == null)
+            {
+                var lineObject = new GameObject(name, typeof(RectTransform), typeof(Image));
+                lineObject.transform.SetParent(root, false);
+                image = lineObject.GetComponent<Image>();
+                if (_usedContentLines < ContentLinePool.Count)
+                    ContentLinePool[_usedContentLines] = image;
+                else
+                    ContentLinePool.Add(image);
+            }
+            image.gameObject.name = name;
+            image.gameObject.SetActive(true);
+            image.transform.SetAsLastSibling();
+            _usedContentLines++;
+            return image;
+        }
+
+        private static void EnsureContentPoolOwner(RectTransform root)
+        {
+            if (_contentPoolOwner == root) return;
+            DestroyContentPool();
+            _contentPoolOwner = root;
+        }
+
+        private static void DeactivateContentPool()
+        {
+            for (int i = 0; i < ContentTextPool.Count; i++)
+            {
+                if (ContentTextPool[i] != null) ContentTextPool[i].gameObject.SetActive(false);
+            }
+            for (int i = 0; i < ContentLinePool.Count; i++)
+            {
+                if (ContentLinePool[i] != null) ContentLinePool[i].gameObject.SetActive(false);
+            }
+        }
+
+        private static void DestroyContentPool()
+        {
+            for (int i = 0; i < ContentTextPool.Count; i++)
+            {
+                if (ContentTextPool[i] != null) UnityEngine.Object.Destroy(ContentTextPool[i].gameObject);
+            }
+            for (int i = 0; i < ContentLinePool.Count; i++)
+            {
+                if (ContentLinePool[i] != null) UnityEngine.Object.Destroy(ContentLinePool[i].gameObject);
+            }
+            ContentTextPool.Clear();
+            ContentLinePool.Clear();
+            _contentPoolOwner = null;
+            _usedContentTexts = 0;
+            _usedContentLines = 0;
+        }
+
+        private static bool IsPooledContentObject(GameObject gameObject)
+        {
+            for (int i = 0; i < ContentTextPool.Count; i++)
+            {
+                if (ContentTextPool[i] != null && ContentTextPool[i].gameObject == gameObject) return true;
+            }
+            for (int i = 0; i < ContentLinePool.Count; i++)
+            {
+                if (ContentLinePool[i] != null && ContentLinePool[i].gameObject == gameObject) return true;
+            }
+            return false;
+        }
+
         private static void ClearContentDecorations(RectTransform root)
         {
+            if (_contentPoolOwner == root) DeactivateContentPool();
             for (int i = root.childCount - 1; i >= 0; i--)
             {
                 Transform child = root.GetChild(i);
                 if (child.name.StartsWith(ContentPrefix, StringComparison.Ordinal))
                 {
+                    if (IsPooledContentObject(child.gameObject)) continue;
                     child.gameObject.SetActive(false);
                     UnityEngine.Object.Destroy(child.gameObject);
                 }
             }
         }
 
-        private static void Refresh(InventoryGui gui)
+        private static void UpdateSelectedRecipe(InventoryGui gui, IReadOnlyList<RecipePairView> visibleViews)
         {
-            RefreshMethod.Invoke(gui, new object[] { false });
+            object? selectedRecipe = SelectedRecipeField.GetValue(gui);
+            if (selectedRecipe != null)
+            {
+                for (int i = 0; i < visibleViews.Count; i++)
+                {
+                    if (ReferenceEquals(visibleViews[i].Pair, selectedRecipe)) return;
+                }
+            }
+
+            int selectedIndex = visibleViews.Count == 0
+                ? -1
+                : (int)GetSelectedRecipeIndexMethod.Invoke(gui, new object[] { true });
+            SetRecipeMethod.Invoke(gui, new object[] { selectedIndex, false });
+        }
+
+        private static void RestoreCachedRecipeList(InventoryGui gui)
+        {
+            if (_cachedRecipeViews == null || !ReferenceEquals(_cachedRecipeOwner, gui)) return;
+
+            ClearContentDecorations(gui.m_recipeListRoot);
+            IList pairs = (IList)AvailableRecipesField.GetValue(gui);
+            pairs.Clear();
+            int restoredCount = 0;
+            for (int i = 0; i < _cachedRecipeViews.Count; i++)
+            {
+                RecipePairView view = _cachedRecipeViews[i];
+                if (view.Element == null) continue;
+
+                view.Element.SetActive(true);
+                var rect = (RectTransform)view.Element.transform;
+                rect.anchoredPosition = new Vector2(0f, -restoredCount * gui.m_recipeListSpace);
+                pairs.Add(view.Pair);
+                restoredCount++;
+            }
+
+            float baseSize = (float)RecipeListBaseSizeField.GetValue(gui);
+            gui.m_recipeListRoot.SetSizeWithCurrentAnchors(
+                RectTransform.Axis.Vertical,
+                Mathf.Max(baseSize, restoredCount * gui.m_recipeListSpace));
+            ClearRecipeCache();
+        }
+
+        private static void ClearRecipeCache()
+        {
+            _cachedRecipeOwner = null;
+            _cachedRecipeViews = null;
+            _orderedRecipeViews = null;
+            VisibleRecipeScratch.Clear();
+            _cachedOrderingKey = int.MinValue;
+            _cachedRecipeContext = default;
+            _cachedFoodStationKind = default;
         }
 
         private sealed class RecipePairView
         {
-            internal RecipePairView(object pair, GameObject element, RecipeFacts facts)
+            internal RecipePairView(object pair, GameObject element, Recipe recipe, RecipeFacts facts)
             {
                 Pair = pair;
                 Element = element;
+                Recipe = recipe;
                 Facts = facts;
                 Group = new RecipeGroup("Other", 999);
             }
 
             internal object Pair { get; }
             internal GameObject Element { get; }
-            internal RecipeFacts Facts { get; }
+            internal Recipe Recipe { get; }
+            internal RecipeFacts Facts { get; set; }
             internal RecipeGroup Group { get; set; }
             internal int Suborder { get; set; }
             internal float Strength { get; set; }

@@ -43,6 +43,18 @@ namespace InventoryUX.Patches
         private static readonly FailureCircuitBreaker Breaker =
             new FailureCircuitBreaker("CraftGuard recipe organization");
 
+        private static void Prefix(InventoryGui __instance)
+        {
+            try
+            {
+                RecipeOrganizer.PrepareForVanillaRecipeRefresh(__instance);
+            }
+            catch (System.Exception exception)
+            {
+                Breaker.Trip(exception);
+            }
+        }
+
         private static void Postfix(InventoryGui __instance, List<Recipe> recipes)
         {
             if (!ModConfig.Enabled.Value || !ModConfig.OrganizeRecipes.Value)

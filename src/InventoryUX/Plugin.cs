@@ -13,7 +13,7 @@ namespace InventoryUX
         // and an old InventoryUX DLL cannot load beside CraftGuard by accident.
         internal const string PluginGuid = "com.inventoryux.valheim";
         internal const string PluginName = "CraftGuard";
-        internal const string PluginVersion = "0.2.2";
+        internal const string PluginVersion = "0.2.3";
 
         internal static ManualLogSource LogInstance { get; private set; } = null!;
         internal static Plugin Instance { get; private set; } = null!;
@@ -31,18 +31,11 @@ namespace InventoryUX
             Logger.LogInfo($"{PluginName} {PluginVersion} loaded. Undiscovered content is never rendered.");
         }
 
-        private void Update()
-        {
-            if (ModConfig.Enabled.Value && ModConfig.WriteDataInventoryOnStartup.Value)
-            {
-                DataInventoryWriter.TryWriteOnce();
-            }
-        }
-
         private void OnDestroy()
         {
             Cleanup("Hammer UI", HammerGroupDecorations.Shutdown);
             Cleanup("Hammer sizing", HammerGridSizer.Restore);
+            Cleanup("Hammer caches", HammerOrganizer.Reset);
             Cleanup("recipe UI", RecipeOrganizer.Shutdown);
             Cleanup("food cache", FoodStatsResolver.Reset);
             _harmony?.UnpatchSelf();

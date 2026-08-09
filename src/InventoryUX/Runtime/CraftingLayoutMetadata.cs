@@ -108,7 +108,7 @@ namespace InventoryUX.Runtime
 
         internal static CraftingPieceLayout Resolve(Piece piece)
         {
-            string label = Normalize(HammerOrganizer.GetLabel(piece));
+            string label = Normalize(HammerOrganizer.GetLabel(piece, Piece.PieceCategory.Crafting));
             string localizedName = Localization.instance != null
                 ? Localization.instance.Localize(piece.m_name)
                 : piece.m_name;

@@ -11,9 +11,12 @@ namespace InventoryUX.Core
                 return true;
             }
 
-            string search = query!.Trim();
-            return facts.DisplayName.IndexOf(search, StringComparison.CurrentCultureIgnoreCase) >= 0
-                || facts.Id.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0;
+            return MatchesPrepared(facts, query!.Trim());
         }
+
+        internal static bool MatchesPrepared(RecipeFacts facts, string preparedQuery)
+            => preparedQuery.Length == 0
+                || facts.DisplayName.IndexOf(preparedQuery, StringComparison.CurrentCultureIgnoreCase) >= 0
+                || facts.Id.IndexOf(preparedQuery, StringComparison.OrdinalIgnoreCase) >= 0;
     }
 }

@@ -12,23 +12,37 @@ namespace InventoryUX.Runtime
         private static readonly System.Reflection.FieldInfo AvailablePiecesField =
             AccessTools.Field(typeof(PieceTable), "m_availablePieces");
 
-        private static readonly Dictionary<int, string> LabelsByPiece = new Dictionary<int, string>();
+        private static readonly Dictionary<long, string> LabelsByPieceCategory = new Dictionary<long, string>();
+        private static readonly Dictionary<long, HammerPieceMetadata> MetadataByPieceCategory =
+            new Dictionary<long, HammerPieceMetadata>();
+        private static readonly Dictionary<long, CategorySortState> SortStateByTableCategory =
+            new Dictionary<long, CategorySortState>();
 
-        internal static void ReorderAvailablePieces(PieceTable table)
+        internal static bool ReorderAvailablePieces(PieceTable table)
         {
             var available = (List<List<Piece>>)AvailablePiecesField.GetValue(table);
-            LabelsByPiece.Clear();
-
-            Reorder(available, Piece.PieceCategory.Misc, true);
-            Reorder(available, Piece.PieceCategory.Crafting, ModConfig.OrganizeCrafting.Value);
-            Reorder(available, Piece.PieceCategory.BuildingWorkbench, ModConfig.OrganizeBuilding.Value);
-            Reorder(available, Piece.PieceCategory.BuildingStonecutter, ModConfig.OrganizeHeavyBuilding.Value);
-            Reorder(available, Piece.PieceCategory.Furniture, ModConfig.OrganizeFurniture.Value);
+            bool changed = false;
+            changed |= Reorder(table, available, Piece.PieceCategory.Misc, true);
+            changed |= Reorder(table, available, Piece.PieceCategory.Crafting, ModConfig.OrganizeCrafting.Value);
+            changed |= Reorder(table, available, Piece.PieceCategory.BuildingWorkbench, ModConfig.OrganizeBuilding.Value);
+            changed |= Reorder(table, available, Piece.PieceCategory.BuildingStonecutter, ModConfig.OrganizeHeavyBuilding.Value);
+            changed |= Reorder(table, available, Piece.PieceCategory.Furniture, ModConfig.OrganizeFurniture.Value);
+            return changed;
         }
 
-        internal static string? GetLabel(Piece piece)
+        internal static void Reset()
         {
-            return piece != null && LabelsByPiece.TryGetValue(piece.GetInstanceID(), out string label) ? label : null;
+            LabelsByPieceCategory.Clear();
+            MetadataByPieceCategory.Clear();
+            SortStateByTableCategory.Clear();
+        }
+
+        internal static string? GetLabel(Piece piece, Piece.PieceCategory category)
+        {
+            return piece != null
+                && LabelsByPieceCategory.TryGetValue(CacheKey(piece.GetInstanceID(), category), out string label)
+                ? label
+                : null;
         }
 
         internal static int GetExtensionOrder(Piece piece)
@@ -52,6 +66,9 @@ namespace InventoryUX.Runtime
         }
 
         internal static PieceGroup Classify(Piece piece, Piece.PieceCategory category)
+            => GetMetadata(piece, category).Group;
+
+        private static PieceGroup ClassifyUncached(Piece piece, Piece.PieceCategory category)
         {
             switch (category)
             {
@@ -70,49 +87,36 @@ namespace InventoryUX.Runtime
             }
         }
 
-        private static void Reorder(List<List<Piece>> all, Piece.PieceCategory category, bool enabled)
+        private static bool Reorder(
+            PieceTable table,
+            List<List<Piece>> all,
+            Piece.PieceCategory category,
+            bool enabled)
         {
             int index = (int)category;
             if (!enabled || index < 0 || index >= all.Count || all[index] == null)
             {
-                return;
+                return false;
             }
 
             List<Piece> pieces = all[index];
+            PieceSetSignature signature = PieceSetSignature.Create(pieces);
+            long stateKey = CacheKey(table.GetInstanceID(), category);
+            if (SortStateByTableCategory.TryGetValue(stateKey, out CategorySortState? cached)
+                && cached.Signature.Equals(signature))
+            {
+                cached.Apply(pieces);
+                CacheLabels(cached.SortedPieces, category);
+                return false;
+            }
+
             var entries = new List<HammerSortEntry>(pieces.Count);
             for (int i = 0; i < pieces.Count; i++)
             {
                 Piece piece = pieces[i];
-                PieceGroup group = Classify(piece, category);
-                bool action = category == Piece.PieceCategory.Crafting
-                    ? piece.m_repairPiece || piece.m_removePiece
-                    : CraftingLayoutMetadata.IsRepair(piece) || piece.m_removePiece;
-                CraftingPieceLayout craftingLayout = default;
-                HammerSortKey progression = default;
-                string localizedName = string.Empty;
-
-                if (category == Piece.PieceCategory.Crafting)
-                {
-                    if (!action) craftingLayout = CraftingLayoutMetadata.Resolve(piece);
-                    localizedName = Localize(piece.m_name);
-                }
-                else if (!action)
-                {
-                    progression = HammerProgressionSorter.Create(
-                        ToSortCategory(category),
-                        SearchText(piece),
-                        ResourceIdentifiers(piece));
-                }
-
-                entries.Add(new HammerSortEntry(
-                    piece,
-                    i,
-                    action,
-                    group,
-                    craftingLayout,
-                    progression,
-                    localizedName));
-                LabelsByPiece[piece.GetInstanceID()] = group.Label;
+                HammerPieceMetadata metadata = GetMetadata(piece, category);
+                entries.Add(metadata.ToSortEntry(piece, i));
+                LabelsByPieceCategory[CacheKey(piece.GetInstanceID(), category)] = metadata.Group.Label;
             }
 
             entries.Sort((left, right) =>
@@ -160,7 +164,69 @@ namespace InventoryUX.Runtime
             {
                 pieces[i] = entries[i].Piece;
             }
+
+            var sortedPieces = new Piece[entries.Count];
+            for (int i = 0; i < entries.Count; i++) sortedPieces[i] = entries[i].Piece;
+            SortStateByTableCategory[stateKey] = new CategorySortState(signature, sortedPieces);
+            HammerGroupDecorations.NotifyPiecesChanged(category);
+            return true;
         }
+
+        private static HammerPieceMetadata GetMetadata(Piece piece, Piece.PieceCategory category)
+        {
+            long key = CacheKey(piece.GetInstanceID(), category);
+            if (MetadataByPieceCategory.TryGetValue(key, out HammerPieceMetadata cached)
+                && ReferenceEquals(cached.Piece, piece))
+            {
+                return cached;
+            }
+
+            PieceGroup group = ClassifyUncached(piece, category);
+            bool action = category == Piece.PieceCategory.Crafting
+                ? piece.m_repairPiece || piece.m_removePiece
+                : CraftingLayoutMetadata.IsRepair(piece) || piece.m_removePiece;
+            CraftingPieceLayout craftingLayout = default;
+            HammerSortKey progression = default;
+            string localizedName = string.Empty;
+
+            if (category == Piece.PieceCategory.Crafting)
+            {
+                LabelsByPieceCategory[key] = group.Label;
+                if (!action) craftingLayout = CraftingLayoutMetadata.Resolve(piece);
+                localizedName = Localize(piece.m_name);
+            }
+            else if (!action)
+            {
+                progression = HammerProgressionSorter.Create(
+                    ToSortCategory(category),
+                    SearchText(piece),
+                    ResourceIdentifiers(piece));
+            }
+
+            var metadata = new HammerPieceMetadata(
+                piece,
+                action,
+                group,
+                craftingLayout,
+                progression,
+                localizedName);
+            MetadataByPieceCategory[key] = metadata;
+            return metadata;
+        }
+
+        private static void CacheLabels(IReadOnlyList<Piece> pieces, Piece.PieceCategory category)
+        {
+            for (int i = 0; i < pieces.Count; i++)
+            {
+                Piece piece = pieces[i];
+                if (piece == null) continue;
+                LabelsByPieceCategory[CacheKey(piece.GetInstanceID(), category)] =
+                    GetMetadata(piece, category).Group.Label;
+            }
+        }
+
+        private static long CacheKey(int ownerInstanceId, Piece.PieceCategory category)
+            => ((long)ownerInstanceId << 32) ^ (uint)(int)category;
 
         private static PieceGroup ClassifyCrafting(Piece piece)
         {
@@ -451,6 +517,134 @@ namespace InventoryUX.Runtime
             while (end >= 0 && char.IsDigit(value[end])) end--;
             if (end == value.Length - 1) return -1;
             return int.TryParse(value.Substring(end + 1), NumberStyles.None, CultureInfo.InvariantCulture, out int number) ? number : -1;
+        }
+    }
+
+    internal readonly struct HammerPieceMetadata
+    {
+        internal HammerPieceMetadata(
+            Piece piece,
+            bool action,
+            PieceGroup group,
+            CraftingPieceLayout craftingLayout,
+            HammerSortKey progression,
+            string localizedName)
+        {
+            Piece = piece;
+            Action = action;
+            Group = group;
+            CraftingLayout = craftingLayout;
+            Progression = progression;
+            LocalizedName = localizedName;
+        }
+
+        internal Piece Piece { get; }
+        internal bool Action { get; }
+        internal PieceGroup Group { get; }
+        internal CraftingPieceLayout CraftingLayout { get; }
+        internal HammerSortKey Progression { get; }
+        internal string LocalizedName { get; }
+
+        internal HammerSortEntry ToSortEntry(Piece piece, int originalIndex)
+            => new HammerSortEntry(
+                piece,
+                originalIndex,
+                Action,
+                Group,
+                CraftingLayout,
+                Progression,
+                LocalizedName);
+    }
+
+    internal sealed class CategorySortState
+    {
+        internal CategorySortState(PieceSetSignature signature, Piece[] sortedPieces)
+        {
+            Signature = signature;
+            SortedPieces = sortedPieces;
+        }
+
+        internal PieceSetSignature Signature { get; }
+        internal Piece[] SortedPieces { get; }
+
+        internal void Apply(List<Piece> destination)
+        {
+            if (destination.Count != SortedPieces.Length) return;
+            for (int i = 0; i < SortedPieces.Length; i++)
+            {
+                if (!ReferenceEquals(destination[i], SortedPieces[i]))
+                {
+                    for (int copy = 0; copy < SortedPieces.Length; copy++)
+                    {
+                        destination[copy] = SortedPieces[copy];
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
+    internal readonly struct PieceSetSignature : IEquatable<PieceSetSignature>
+    {
+        private PieceSetSignature(int count, ulong sum, ulong xor, ulong weighted)
+        {
+            Count = count;
+            Sum = sum;
+            Xor = xor;
+            Weighted = weighted;
+        }
+
+        private int Count { get; }
+        private ulong Sum { get; }
+        private ulong Xor { get; }
+        private ulong Weighted { get; }
+
+        internal static PieceSetSignature Create(IReadOnlyList<Piece> pieces)
+        {
+            ulong sum = 0;
+            ulong xor = 0;
+            ulong weighted = 0;
+            for (int i = 0; i < pieces.Count; i++)
+            {
+                Piece piece = pieces[i];
+                uint value = piece == null ? 0u : unchecked((uint)piece.GetInstanceID());
+                ulong mixed = Mix(value);
+                sum = unchecked(sum + mixed);
+                xor ^= mixed;
+                weighted = unchecked(weighted + mixed * mixed);
+            }
+            return new PieceSetSignature(pieces.Count, sum, xor, weighted);
+        }
+
+        public bool Equals(PieceSetSignature other)
+            => Count == other.Count
+                && Sum == other.Sum
+                && Xor == other.Xor
+                && Weighted == other.Weighted;
+
+        public override bool Equals(object? obj)
+            => obj is PieceSetSignature other && Equals(other);
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hash = Count;
+                hash = hash * 397 ^ Sum.GetHashCode();
+                hash = hash * 397 ^ Xor.GetHashCode();
+                return hash * 397 ^ Weighted.GetHashCode();
+            }
+        }
+
+        private static ulong Mix(uint value)
+        {
+            ulong mixed = value;
+            mixed ^= mixed >> 16;
+            mixed *= 0x7feb352dUL;
+            mixed ^= mixed >> 15;
+            mixed *= 0x846ca68bUL;
+            mixed ^= mixed >> 16;
+            return mixed;
         }
     }
 

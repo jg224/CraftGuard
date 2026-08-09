@@ -45,7 +45,10 @@ namespace InventoryUX.ApiTests
                 RequireIntConstant(module, "PieceTable", "UpPiece", 0, 5);
                 RequireIntConstant(module, "PieceTable", "DownPiece", 0, 6);
                 RequireField(module, "InventoryGui", "m_availableRecipes");
+                RequireFieldType(module, "InventoryGui", "m_selectedRecipe", "RecipeDataPair");
                 RequireMethod(module, "InventoryGui", "UpdateRecipeList", 1);
+                RequireMethod(module, "InventoryGui", "GetSelectedRecipeIndex", 1);
+                RequireMethod(module, "InventoryGui", "SetRecipe", 2);
                 RequireMethod(module, "InventoryGui", "OnDestroy", 0);
                 RequireProperty(module, "InventoryGui/RecipeDataPair", "Recipe");
                 RequireProperty(module, "InventoryGui/RecipeDataPair", "InterfaceElement");
@@ -66,7 +69,9 @@ namespace InventoryUX.ApiTests
                 RequireField(module, "Piece", "m_icon");
                 RequireField(module, "Piece", "m_resources");
                 RequireField(module, "ObjectDB", "m_recipes");
+                RequireMethod(module, "ObjectDB", "Awake", 0);
                 RequireField(module, "ZNetScene", "m_prefabs");
+                RequireMethod(module, "ZNetScene", "Awake", 0);
                 RequireMethod(module, "ZNetScene", "OnDestroy", 0);
                 RequireEnumValue(module, "Piece/PieceCategory", "Misc", 0);
                 RequireEnumValue(module, "Piece/PieceCategory", "Crafting", 1);
@@ -92,6 +97,16 @@ namespace InventoryUX.ApiTests
         {
             if (!RequireType(module, type).Fields.Any(field => field.Name == name))
                 throw new InvalidOperationException($"Missing Valheim field: {type}.{name}");
+        }
+
+        private static void RequireFieldType(ModuleDefinition module, string type, string name, string fieldType)
+        {
+            FieldDefinition? field = RequireType(module, type).Fields.FirstOrDefault(candidate => candidate.Name == name);
+            if (field == null)
+                throw new InvalidOperationException($"Missing Valheim field: {type}.{name}");
+            if (!string.Equals(field.FieldType.Name, fieldType, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"Unexpected Valheim field type: {type}.{name} is {field.FieldType.Name}, expected {fieldType}");
         }
 
         private static void RequireMethod(ModuleDefinition module, string type, string name, int parameterCount)
