@@ -3,7 +3,7 @@
     <TargetFramework>net472</TargetFramework>
     <AssemblyName>CraftGuard</AssemblyName>
     <RootNamespace>InventoryUX</RootNamespace>
-    <Version>0.2.1</Version>
+    <Version>0.2.2</Version>
     <DebugType>portable</DebugType>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <ValheimRoot Condition="'$(ValheimRoot)' == ''">C:\ValheimServer\server</ValheimRoot>
