@@ -64,8 +64,16 @@ namespace InventoryUX.Runtime
         private static Image? _defaultViewBackground;
         private static Image? _modViewBackground;
         private static int _viewControlsHudId = int.MinValue;
+        private static int _cleanedGeneratedBackgroundHudId = int.MinValue;
 
         internal static bool UseModView { get; private set; } = true;
+
+        internal static bool ShouldUseModView(PieceTable table)
+        {
+            return table != null
+                && table.gameObject != null
+                && ModConfig.GetToolModView(table.gameObject.name);
+        }
 
         internal static void NotifyPiecesChanged()
         {
@@ -88,7 +96,20 @@ namespace InventoryUX.Runtime
         {
             int hudInstanceId = hud.GetInstanceID();
             RemoveStaleRepairForDifferentHud(hudInstanceId);
+            Player? activePlayer = Player.m_localPlayer;
+            PieceTable? activeTable = activePlayer == null
+                ? null
+                : PlayerBuildPiecesField.GetValue(activePlayer) as PieceTable;
+            if (activeTable != null)
+            {
+                UseModView = ShouldUseModView(activeTable);
+            }
             EnsurePersistentViewControls(hud, hudInstanceId);
+            if (_cleanedGeneratedBackgroundHudId != hudInstanceId)
+            {
+                RemoveGeneratedWarmBackgrounds(hud);
+                _cleanedGeneratedBackgroundHudId = hudInstanceId;
+            }
 
             if (!IsEnabled(category))
             {
@@ -926,10 +947,25 @@ namespace InventoryUX.Runtime
             cardRect.sizeDelta = new Vector2(CategoryRailWidth(spacing), rowPitch * rowSpan - 7f);
 
             Image card = cardObject.GetComponent<Image>();
-            card.color = new Color(0.075f, 0.048f, 0.027f, 0.91f);
+            Image? nativeBackground = FindVanillaCategoryHeaderBackground(hud);
+            if (nativeBackground != null)
+            {
+                card.sprite = nativeBackground.sprite;
+                card.overrideSprite = nativeBackground.overrideSprite;
+                card.material = nativeBackground.material;
+                card.type = nativeBackground.type;
+                card.preserveAspect = nativeBackground.preserveAspect;
+                card.fillCenter = nativeBackground.fillCenter;
+                card.pixelsPerUnitMultiplier = nativeBackground.pixelsPerUnitMultiplier;
+                card.color = nativeBackground.canvasRenderer.GetColor();
+            }
+            else
+            {
+                card.color = new Color(0.20f, 0.20f, 0.20f, 0.70f);
+            }
             card.raycastTarget = false;
-            AddOutline(cardRect, 0f,
-                new Color(0.66f, 0.49f, 0.25f, 0.54f));
+            AddRectBorder(cardRect,
+                new Color(0.68f, 0.50f, 0.25f, 0.68f));
 
             var iconObject = new GameObject(Prefix + "CraftingCategoryIcon", typeof(RectTransform), typeof(Image));
             iconObject.transform.SetParent(cardRect, false);
@@ -968,6 +1004,37 @@ namespace InventoryUX.Runtime
             label.outlineWidth = 0.12f;
             label.outlineColor = new Color32(18, 12, 8, 245);
             label.raycastTarget = false;
+        }
+
+        private static Image? FindVanillaCategoryHeaderBackground(Hud hud)
+        {
+            Image? best = null;
+            float darkestLuminance = float.MaxValue;
+            GameObject[] tabs = hud.m_pieceCategoryTabs;
+            for (int i = 0; i < tabs.Length; i++)
+            {
+                GameObject tab = tabs[i];
+                if (tab == null || !tab.activeInHierarchy) continue;
+
+                Image? image = tab.GetComponent<Image>()
+                    ?? tab.GetComponentInChildren<Image>(true);
+                if (image == null) continue;
+
+                // Selectable transitions tint tab headers through the
+                // CanvasRenderer; Image.color remains white underneath.
+                Color color = image.canvasRenderer.GetColor();
+                if (color.a <= 0.05f) continue;
+                float luminance = color.r * 0.2126f
+                    + color.g * 0.7152f
+                    + color.b * 0.0722f;
+                if (luminance < darkestLuminance)
+                {
+                    best = image;
+                    darkestLuminance = luminance;
+                }
+            }
+
+            return best;
         }
 
         private static void AddRowSeparator(Hud hud, RectTransform templateRect, int row)
@@ -1220,9 +1287,9 @@ namespace InventoryUX.Runtime
             rect.sizeDelta = new Vector2(0f, buttonHeight);
 
             Image background = buttonObject.GetComponent<Image>();
-            background.color = new Color(0.09f, 0.055f, 0.03f, 0.94f);
+            background.color = new Color(0.20f, 0.20f, 0.20f, 0.50f);
             background.raycastTarget = true;
-            AddOutline(rect, 1f,
+            AddRectBorder(rect,
                 new Color(0.68f, 0.50f, 0.25f, 0.68f));
 
             Button button = buttonObject.GetComponent<Button>();
@@ -1260,20 +1327,20 @@ namespace InventoryUX.Runtime
 
         private static void SetHammerView(Hud hud, bool useModView)
         {
-            if (UseModView == useModView) return;
+            Player? player = Player.m_localPlayer;
+            if (player == null) return;
+            PieceTable? table = PlayerBuildPiecesField.GetValue(player) as PieceTable;
+            if (table == null || table.gameObject == null) return;
+            if (ShouldUseModView(table) == useModView) return;
 
+            ModConfig.SetToolModView(table.gameObject.name, useModView);
             UseModView = useModView;
             Clear(hud, true);
             UpdateViewButtonState();
 
-            Player? player = Player.m_localPlayer;
-            if (player == null) return;
-
             try
             {
                 UpdateAvailablePiecesMethod.Invoke(player, null);
-                PieceTable? table = PlayerBuildPiecesField.GetValue(player) as PieceTable;
-                if (table == null) return;
                 HudUpdatePieceListMethod.Invoke(hud, new object[]
                 {
                     player,
@@ -1290,8 +1357,8 @@ namespace InventoryUX.Runtime
 
         private static void UpdateViewButtonState()
         {
-            Color active = new Color(0.25f, 0.56f, 0.78f, 0.96f);
-            Color inactive = new Color(0.09f, 0.055f, 0.03f, 0.94f);
+            Color active = new Color(0.42f, 0.42f, 0.42f, 0.50f);
+            Color inactive = new Color(0.20f, 0.20f, 0.20f, 0.50f);
             if (_defaultViewBackground != null)
             {
                 _defaultViewBackground.color = UseModView ? inactive : active;
@@ -1315,9 +1382,9 @@ namespace InventoryUX.Runtime
             Image? background = button.GetComponent<Image>();
             if (background != null)
             {
-                background.color = new Color(0.09f, 0.055f, 0.03f, 0.94f);
+                background.color = new Color(0.20f, 0.20f, 0.20f, 0.70f);
                 background.raycastTarget = true;
-                AddOutline(rect, 1f,
+                AddRectBorder(rect,
                     new Color(0.68f, 0.50f, 0.25f, 0.68f));
             }
 
@@ -1443,6 +1510,35 @@ namespace InventoryUX.Runtime
             }
         }
 
+        private static void RemoveGeneratedWarmBackgrounds(Hud hud)
+        {
+            if (hud.m_pieceSelectionWindow == null) return;
+
+            Transform? parent = hud.m_pieceSelectionWindow.transform.parent;
+            if (parent != null)
+            {
+                Transform? legacy = parent.Find(Prefix + "WarmPanelBackdrop");
+                if (legacy != null)
+                {
+                    legacy.gameObject.SetActive(false);
+                    UnityEngine.Object.Destroy(legacy.gameObject);
+                }
+            }
+
+            Transform[] descendants =
+                hud.m_pieceSelectionWindow.GetComponentsInChildren<Transform>(true);
+            foreach (Transform descendant in descendants)
+            {
+                if (descendant == null || descendant.gameObject.name != Prefix + "WarmPanelOverlay")
+                {
+                    continue;
+                }
+
+                descendant.gameObject.SetActive(false);
+                UnityEngine.Object.Destroy(descendant.gameObject);
+            }
+        }
+
         private static void DestroyPersistentRepair()
         {
             if (_persistentRepair != null)
@@ -1475,6 +1571,48 @@ namespace InventoryUX.Runtime
             outline.effectColor = color;
             outline.effectDistance = new Vector2(distance, -distance);
             outline.useGraphicAlpha = true;
+        }
+
+        private static void AddRectBorder(RectTransform parent, Color color)
+        {
+            AddRectBorderLine(parent, "Top",
+                new Vector2(0f, 1f), new Vector2(1f, 1f),
+                new Vector2(0f, -0.5f), new Vector2(0f, 1f), color);
+            AddRectBorderLine(parent, "Bottom",
+                new Vector2(0f, 0f), new Vector2(1f, 0f),
+                new Vector2(0f, 0.5f), new Vector2(0f, 1f), color);
+            AddRectBorderLine(parent, "Left",
+                new Vector2(0f, 0f), new Vector2(0f, 1f),
+                new Vector2(0.5f, 0f), new Vector2(1f, 0f), color);
+            AddRectBorderLine(parent, "Right",
+                new Vector2(1f, 0f), new Vector2(1f, 1f),
+                new Vector2(-0.5f, 0f), new Vector2(1f, 0f), color);
+        }
+
+        private static void AddRectBorderLine(
+            RectTransform parent,
+            string side,
+            Vector2 anchorMin,
+            Vector2 anchorMax,
+            Vector2 anchoredPosition,
+            Vector2 sizeDelta,
+            Color color)
+        {
+            var lineObject = new GameObject(
+                Prefix + "ViewButtonBorder" + side,
+                typeof(RectTransform),
+                typeof(Image));
+            lineObject.transform.SetParent(parent, false);
+            var rect = (RectTransform)lineObject.transform;
+            rect.anchorMin = anchorMin;
+            rect.anchorMax = anchorMax;
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = anchoredPosition;
+            rect.sizeDelta = sizeDelta;
+
+            Image line = lineObject.GetComponent<Image>();
+            line.color = color;
+            line.raycastTarget = false;
         }
 
         private static void ApplyGridPermutation(
@@ -1601,13 +1739,79 @@ namespace InventoryUX.Runtime
 
         internal static void Shutdown()
         {
-            if (_hiddenRepairRoot != null) _hiddenRepairRoot.SetActive(true);
-            _hiddenRepairRoot = null;
-            RestoreNativeCraftingCells();
-            DestroyPersistentRepair();
-            DestroyPersistentViewControls();
+            Release(Hud.instance);
             UseModView = true;
+        }
+
+        internal static void Release(Hud? hud)
+        {
+            Exception? failure = null;
+            try
+            {
+                if (hud != null && _stateValid && _appliedHudId == hud.GetInstanceID())
+                {
+                    IList icons = (IList)PieceIconsField.GetValue(hud);
+                    RemoveDecorations(hud, icons);
+                }
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+
+            try
+            {
+                if (_hiddenRepairRoot != null) _hiddenRepairRoot.SetActive(true);
+            }
+            catch (Exception exception)
+            {
+                failure = failure == null ? exception : new AggregateException(failure, exception);
+            }
+            finally
+            {
+                _hiddenRepairRoot = null;
+            }
+
+            try
+            {
+                RestoreNativeCraftingCells();
+            }
+            catch (Exception exception)
+            {
+                failure = failure == null ? exception : new AggregateException(failure, exception);
+            }
+
+            try
+            {
+                DestroyPersistentRepair();
+            }
+            catch (Exception exception)
+            {
+                failure = failure == null ? exception : new AggregateException(failure, exception);
+            }
+
+            try
+            {
+                DestroyPersistentViewControls();
+            }
+            catch (Exception exception)
+            {
+                failure = failure == null ? exception : new AggregateException(failure, exception);
+            }
+
+            try
+            {
+                if (hud != null) RemoveGeneratedWarmBackgrounds(hud);
+                _cleanedGeneratedBackgroundHudId = int.MinValue;
+            }
+            catch (Exception exception)
+            {
+                failure = failure == null ? exception : new AggregateException(failure, exception);
+            }
+
             ResetState();
+
+            if (failure != null) throw new InvalidOperationException("Could not fully release CraftGuard Hammer UI.", failure);
         }
 
         private static void RemoveDecorations(Hud hud, IList icons)

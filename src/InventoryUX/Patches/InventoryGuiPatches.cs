@@ -4,25 +4,91 @@ using System.Collections.Generic;
 
 namespace InventoryUX.Patches
 {
+    [HarmonyPatch(typeof(PlayerController), "TakeInput", new[] { typeof(bool) })]
+    internal static class PlayerControllerCraftingSearchInputPatch
+    {
+        private static bool Prefix(ref bool __result)
+        {
+            if (!RecipeOrganizer.IsSearchFocused) return true;
+            __result = false;
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(Player), "TakeInput")]
+    internal static class PlayerCraftingSearchInputPatch
+    {
+        private static bool Prefix(ref bool __result)
+        {
+            if (!RecipeOrganizer.IsSearchFocused) return true;
+            __result = false;
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(ZInput), nameof(ZInput.GetButtonDown), new[] { typeof(string) })]
+    internal static class CraftingSearchButtonInputPatch
+    {
+        private static bool Prefix(ref bool __result)
+        {
+            if (!RecipeOrganizer.IsSearchFocused) return true;
+            __result = false;
+            return false;
+        }
+    }
+
     [HarmonyPatch(typeof(InventoryGui), "UpdateRecipeList")]
     internal static class InventoryGuiUpdateRecipeListPatch
     {
+        private static readonly FailureCircuitBreaker Breaker =
+            new FailureCircuitBreaker("CraftGuard recipe organization");
+
         private static void Postfix(InventoryGui __instance, List<Recipe> recipes)
         {
             if (!ModConfig.Enabled.Value || !ModConfig.OrganizeRecipes.Value)
             {
-                RecipeOrganizer.Cleanup(__instance);
+                if (TryRelease(__instance)) Breaker.Reset();
+                return;
+            }
+
+            if (Breaker.IsOpen)
+            {
                 return;
             }
 
             try
             {
                 RecipeOrganizer.Organize(__instance);
+                Breaker.Reset();
             }
             catch (System.Exception exception)
             {
-                Plugin.LogInstance.LogWarning($"Recipe organization skipped: {exception.Message}");
+                TryRelease(__instance);
+                Breaker.Trip(exception);
             }
+        }
+
+        internal static bool TryRelease(InventoryGui gui)
+        {
+            try
+            {
+                RecipeOrganizer.Release(gui);
+                return true;
+            }
+            catch (System.Exception exception)
+            {
+                Breaker.Trip(exception);
+                return false;
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(InventoryGui), "OnDestroy")]
+    internal static class InventoryGuiDestroyPatch
+    {
+        private static void Prefix(InventoryGui __instance)
+        {
+            InventoryGuiUpdateRecipeListPatch.TryRelease(__instance);
         }
     }
 }

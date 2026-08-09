@@ -2,6 +2,7 @@ using BepInEx;
 using BepInEx.Logging;
 using HarmonyLib;
 using InventoryUX.Runtime;
+using System;
 
 namespace InventoryUX
 {
@@ -12,7 +13,7 @@ namespace InventoryUX
         // and an old InventoryUX DLL cannot load beside CraftGuard by accident.
         internal const string PluginGuid = "com.inventoryux.valheim";
         internal const string PluginName = "CraftGuard";
-        internal const string PluginVersion = "0.2.0";
+        internal const string PluginVersion = "0.2.1";
 
         internal static ManualLogSource LogInstance { get; private set; } = null!;
         internal static Plugin Instance { get; private set; } = null!;
@@ -40,9 +41,23 @@ namespace InventoryUX
 
         private void OnDestroy()
         {
-            HammerGroupDecorations.Shutdown();
-            HammerGridSizer.Restore();
+            Cleanup("Hammer UI", HammerGroupDecorations.Shutdown);
+            Cleanup("Hammer sizing", HammerGridSizer.Restore);
+            Cleanup("recipe UI", RecipeOrganizer.Shutdown);
+            Cleanup("food cache", FoodStatsResolver.Reset);
             _harmony?.UnpatchSelf();
+        }
+
+        private static void Cleanup(string name, Action action)
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception exception)
+            {
+                LogInstance.LogWarning($"CraftGuard could not fully release {name} during shutdown: {exception}");
+            }
         }
     }
 }

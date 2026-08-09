@@ -37,6 +37,13 @@ namespace InventoryUX.Runtime
         private static FixedControls? _fixedControls;
         private static string _searchText = string.Empty;
         private static string _activeStationKey = string.Empty;
+        private static bool _searchHasFocus;
+
+        internal static bool IsSearchFocused
+            => _searchHasFocus
+                && _fixedControls != null
+                && _fixedControls.SearchRoot != null
+                && _fixedControls.SearchRoot.activeInHierarchy;
 
         internal static void Organize(InventoryGui gui)
         {
@@ -172,6 +179,55 @@ namespace InventoryUX.Runtime
             HideFixedControls(gui);
         }
 
+        internal static void Release(InventoryGui gui)
+        {
+            Exception? failure = null;
+            try
+            {
+                if (gui != null && gui.m_recipeListRoot != null)
+                {
+                    ClearContentDecorations(gui.m_recipeListRoot);
+                }
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+
+            try
+            {
+                if (_fixedControls != null && ReferenceEquals(_fixedControls.Owner, gui))
+                {
+                    DestroyFixedControls();
+                }
+            }
+            catch (Exception exception)
+            {
+                failure = failure == null ? exception : new AggregateException(failure, exception);
+            }
+            finally
+            {
+                ResetTransientState();
+            }
+
+            if (failure != null) throw new InvalidOperationException("Could not fully release CraftGuard recipe UI.", failure);
+        }
+
+        internal static void Shutdown()
+        {
+            try
+            {
+                DestroyFixedControls();
+            }
+            finally
+            {
+                ResetTransientState();
+                _pairType = null;
+                _recipeProperty = null;
+                _elementProperty = null;
+            }
+        }
+
         private static void PrepareStationSearch(CraftingStation station)
         {
             string stationKey = station.m_name + "|" + station.gameObject.name;
@@ -300,10 +356,7 @@ namespace InventoryUX.Runtime
 
             if (_fixedControls != null)
             {
-                _fixedControls.RestoreRecipeViewport();
-                if (_fixedControls.ModeRoot != null) UnityEngine.Object.Destroy(_fixedControls.ModeRoot);
-                if (_fixedControls.SearchRoot != null) UnityEngine.Object.Destroy(_fixedControls.SearchRoot);
-                _fixedControls = null;
+                DestroyFixedControls();
             }
 
             GameObject modeRoot = CreateModeRoot(gui, context, out ModeButtonState[] modeButtons);
@@ -458,10 +511,37 @@ namespace InventoryUX.Runtime
             input.characterLimit = 64;
             input.caretColor = Gold;
             input.selectionColor = new Color(ActiveBlue.r, ActiveBlue.g, ActiveBlue.b, 0.55f);
-            input.onValueChanged.AddListener(value =>
+            TMP_InputField searchInput = input;
+            searchInput.onSelect.AddListener(_ => _searchHasFocus = true);
+            searchInput.onDeselect.AddListener(_ => _searchHasFocus = false);
+            searchInput.onEndEdit.AddListener(_ => _searchHasFocus = false);
+            searchInput.onValueChanged.AddListener(value =>
             {
+                bool retainFocus = _searchHasFocus || searchInput.isFocused;
+                int caretPosition = searchInput.caretPosition;
+                int anchorPosition = searchInput.selectionAnchorPosition;
+                int focusPosition = searchInput.selectionFocusPosition;
                 _searchText = value ?? string.Empty;
                 Refresh(gui);
+
+                // Updating Valheim's recipe panel can replace its selected
+                // recipe button and make the EventSystem drop the input field.
+                // Reclaim selection synchronously so the next key cannot leak
+                // through as Use, Guardian Power, movement, or another action.
+                if (retainFocus
+                    && searchInput != null
+                    && searchInput.gameObject.activeInHierarchy
+                    && _fixedControls != null
+                    && ReferenceEquals(_fixedControls.SearchInput, searchInput))
+                {
+                    searchInput.Select();
+                    searchInput.ActivateInputField();
+                    int textLength = searchInput.text != null ? searchInput.text.Length : 0;
+                    searchInput.caretPosition = Mathf.Clamp(caretPosition, 0, textLength);
+                    searchInput.selectionAnchorPosition = Mathf.Clamp(anchorPosition, 0, textLength);
+                    searchInput.selectionFocusPosition = Mathf.Clamp(focusPosition, 0, textLength);
+                    _searchHasFocus = true;
+                }
             });
 
             CreateClearSearchButton(gui, searchRect, input);
@@ -532,6 +612,8 @@ namespace InventoryUX.Runtime
             }
             else
             {
+                _searchHasFocus = false;
+                _fixedControls.SearchInput.DeactivateInputField();
                 _fixedControls.RestoreRecipeViewport();
             }
             _fixedControls.ModeRoot.SetActive(visible);
@@ -545,6 +627,74 @@ namespace InventoryUX.Runtime
             {
                 SetFixedControlsVisible(false);
             }
+        }
+
+        private static void DestroyFixedControls()
+        {
+            if (_fixedControls == null) return;
+
+            FixedControls controls = _fixedControls;
+            _fixedControls = null;
+            _searchHasFocus = false;
+            Exception? failure = null;
+            try
+            {
+                controls.RestoreRecipeViewport();
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+
+            try
+            {
+                DestroyControlRoot(controls.ModeRoot);
+            }
+            catch (Exception exception)
+            {
+                failure = failure == null ? exception : new AggregateException(failure, exception);
+            }
+
+            try
+            {
+                DestroyControlRoot(controls.SearchRoot);
+            }
+            catch (Exception exception)
+            {
+                failure = failure == null ? exception : new AggregateException(failure, exception);
+            }
+
+            if (failure != null) throw new InvalidOperationException("Could not fully destroy CraftGuard recipe controls.", failure);
+        }
+
+        private static void DestroyControlRoot(GameObject root)
+        {
+            if (root == null) return;
+
+            Button[] buttons = root.GetComponentsInChildren<Button>(true);
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                buttons[i].onClick.RemoveAllListeners();
+            }
+
+            TMP_InputField[] inputs = root.GetComponentsInChildren<TMP_InputField>(true);
+            for (int i = 0; i < inputs.Length; i++)
+            {
+                inputs[i].onValueChanged.RemoveAllListeners();
+                inputs[i].onSelect.RemoveAllListeners();
+                inputs[i].onDeselect.RemoveAllListeners();
+                inputs[i].onEndEdit.RemoveAllListeners();
+            }
+
+            root.SetActive(false);
+            UnityEngine.Object.Destroy(root);
+        }
+
+        private static void ResetTransientState()
+        {
+            _searchText = string.Empty;
+            _activeStationKey = string.Empty;
+            _searchHasFocus = false;
         }
 
         private static void UpdateModeAppearance()
