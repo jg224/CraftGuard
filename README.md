@@ -30,7 +30,7 @@ CraftGuard is a client-side Valheim mod that turns crowded Hammer and crafting m
 - Keeps every view spoiler-safe by organizing only content Valheim has already made available to the player.
 - Supports modded pieces and recipes through stable fallback groups.
 
-## Performance in 0.2.3
+## Performance
 
 CraftGuard now caches Hammer classification, category ordering, and crafting-station recipe rows. Search filters the existing list instead of rebuilding Valheim's crafting panel for every keystroke, and generated cards, dividers, labels, and headings are reused. Food-stat lookups are initialized only at food stations and cached per item. These changes reduce repeated sorting, hierarchy scans, UI allocation, and garbage collection while the menus are open.
 
@@ -43,7 +43,7 @@ Install [jg224-CraftGuard](https://thunderstore.io/c/valheim/p/jg224/CraftGuard/
 ### Manual
 
 1. Install BepInEx 5 for the Valheim client.
-2. Download `CraftGuard-0.2.3.zip` from the [latest release](https://github.com/jg224/CraftGuard/releases/latest).
+2. Download `CraftGuard-0.2.4.zip` from the [latest release](https://github.com/jg224/CraftGuard/releases/latest).
 3. Remove an older `InventoryUX.dll` if one is installed.
 4. Extract `CraftGuard.dll` into `Valheim/BepInEx/plugins/CraftGuard/`.
 5. Start Valheim.

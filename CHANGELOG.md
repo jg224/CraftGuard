@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4 - 2026-08-09
+
+- Keeps release-specific update notes in the changelog instead of the main mod description.
+
 ## 0.2.3 - 2026-08-09
 
 - Filters crafting searches against cached recipe rows instead of rebuilding Valheim's entire crafting panel on every keystroke.
