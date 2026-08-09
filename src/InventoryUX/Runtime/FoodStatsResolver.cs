@@ -12,6 +12,14 @@ namespace InventoryUX.Runtime
         private static int _sceneInstanceId = int.MinValue;
         private static int _scenePrefabCount = -1;
 
+        internal static void Reset()
+        {
+            CookedByInput.Clear();
+            FeastFoodByInput.Clear();
+            _sceneInstanceId = int.MinValue;
+            _scenePrefabCount = -1;
+        }
+
         internal static ResolvedFoodStats Resolve(ItemDrop output)
         {
             EnsureIndex();
@@ -59,10 +67,9 @@ namespace InventoryUX.Runtime
             int prefabCount = scene.m_prefabs.Count;
             if (_sceneInstanceId == instanceId && _scenePrefabCount == prefabCount) return;
 
+            Reset();
             _sceneInstanceId = instanceId;
             _scenePrefabCount = prefabCount;
-            CookedByInput.Clear();
-            FeastFoodByInput.Clear();
 
             for (int prefabIndex = 0; prefabIndex < scene.m_prefabs.Count; prefabIndex++)
             {

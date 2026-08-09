@@ -10,6 +10,7 @@ namespace InventoryUX.Runtime
         internal static ConfigEntry<bool> Enabled { get; private set; } = null!;
         internal static ConfigEntry<bool> ShowSeparators { get; private set; } = null!;
         internal static ConfigEntry<bool> ShowHammerPieceNames { get; private set; } = null!;
+        internal static ConfigEntry<string> HammerToolViews { get; private set; } = null!;
         internal static ConfigEntry<bool> OrganizeCrafting { get; private set; } = null!;
         internal static ConfigEntry<bool> OrganizeBuilding { get; private set; } = null!;
         internal static ConfigEntry<bool> OrganizeHeavyBuilding { get; private set; } = null!;
@@ -60,7 +61,11 @@ namespace InventoryUX.Runtime
             Enabled = config.Bind("General", "Enabled", true, "Enable CraftGuard.");
             ShowSeparators = config.Bind("General", "ShowSeparators", true, "Show restrained separator lines around recipe groups.");
             ShowHammerPieceNames = config.Bind("Hammer", "ShowPieceNames", false, "Show names beneath individual pieces in organized Hammer tabs.");
-
+            HammerToolViews = config.Bind(
+                "Hammer",
+                "ToolViewModes",
+                ToolViewPreferences.DefaultValue,
+                "Remember Default or Mod View independently for each build tool.");
             OrganizeCrafting = config.Bind("Hammer", "OrganizeCrafting", true, "Group stations and their known extensions.");
             OrganizeBuilding = config.Bind("Hammer", "OrganizeBuilding", true, "Group building pieces by material and structure.");
             OrganizeHeavyBuilding = config.Bind("Hammer", "OrganizeHeavyBuilding", true, "Group heavy building pieces by material and structure.");
@@ -86,6 +91,17 @@ namespace InventoryUX.Runtime
         internal static void SetFoodMode(FoodGroupingMode mode)
         {
             FoodGrouping.Value = mode.ToString();
+            File.Save();
+        }
+
+        internal static bool GetToolModView(string toolKey)
+        {
+            return ToolViewPreferences.IsModView(HammerToolViews.Value, toolKey);
+        }
+
+        internal static void SetToolModView(string toolKey, bool useModView)
+        {
+            HammerToolViews.Value = ToolViewPreferences.Set(HammerToolViews.Value, toolKey, useModView);
             File.Save();
         }
 

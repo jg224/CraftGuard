@@ -43,7 +43,7 @@ Install [jg224-CraftGuard](https://thunderstore.io/c/valheim/p/jg224/CraftGuard/
 ### Manual
 
 1. Install BepInEx 5 for the Valheim client.
-2. Download `CraftGuard-0.2.0.zip` from the [latest release](https://github.com/jg224/CraftGuard/releases/latest).
+2. Download `CraftGuard-0.2.1.zip` from the [latest release](https://github.com/jg224/CraftGuard/releases/latest).
 3. Remove an older `InventoryUX.dll` if one is installed.
 4. Extract `CraftGuard.dll` into `Valheim/BepInEx/plugins/CraftGuard/`.
 5. Start Valheim.
@@ -79,6 +79,7 @@ CraftGuard generates `BepInEx/config/com.inventoryux.valheim.cfg` on first launc
 | `General.Enabled` | `true` | Enables CraftGuard |
 | `General.ShowSeparators` | `true` | Shows restrained recipe-group separators |
 | `Hammer.ShowPieceNames` | `false` | Shows outlined names below Hammer pieces |
+| `Hammer.ToolViewModes` | Hammer: `Mod`; Hoe/Cultivator: `Default` | Remembers Default or Mod View independently for each build tool |
 | `Hammer.OrganizeCrafting` | `true` | Organizes crafting stations and extensions |
 | `Hammer.OrganizeBuilding` | `true` | Organizes building pieces |
 | `Hammer.OrganizeHeavyBuilding` | `true` | Organizes heavy building pieces |

@@ -28,7 +28,8 @@ namespace InventoryUX.CoreTests
                 HammerFamiliesAndVariantsStayCoherent,
                 MiscTravelUsesRequestedProgression,
                 MiscDefensePinsRoundpoleFirstAndShieldGeneratorLast,
-                SeasonalHammerPiecesSortAfterNormalProgression
+                SeasonalHammerPiecesSortAfterNormalProgression,
+                ToolViewsAreRememberedPerTool
             };
 
             try
@@ -312,6 +313,30 @@ namespace InventoryUX.CoreTests
 
             Equal(true, roundpole < palisade, "Roundpole Fence before other Defense pieces");
             Equal(true, palisade < shieldGenerator, "Shield Generator after other Defense pieces");
+        }
+
+        private static void ToolViewsAreRememberedPerTool()
+        {
+            string preferences = ToolViewPreferences.DefaultValue;
+
+            Equal(true, ToolViewPreferences.IsModView(preferences, "_HammerPieceTable"),
+                "Hammer defaults to Mod View");
+            Equal(false, ToolViewPreferences.IsModView(preferences, "_HoePieceTable"),
+                "Hoe defaults to Default View");
+            Equal(false, ToolViewPreferences.IsModView(preferences, "_CultivatorPieceTable(Clone)"),
+                "Cultivator clone defaults to Default View");
+
+            preferences = ToolViewPreferences.Set(preferences, "_HoePieceTable(Clone)", true);
+            preferences = ToolViewPreferences.Set(preferences, "_HammerPieceTable", false);
+
+            Equal(true, ToolViewPreferences.IsModView(preferences, "_HoePieceTable"),
+                "Hoe remembers Mod View independently");
+            Equal(false, ToolViewPreferences.IsModView(preferences, "_HammerPieceTable(Clone)"),
+                "Hammer remembers Default View independently");
+            Equal(false, ToolViewPreferences.IsModView(preferences, "_CultivatorPieceTable"),
+                "Cultivator remains unchanged");
+            Equal(true, ToolViewPreferences.IsModView(preferences, "_ModdedPieceTable"),
+                "Unknown tools default to Mod View");
         }
 
         private static RecipeGroup Group(Row row) => RecipeClassifier.GetEquipmentGroup(row.Facts, EquipmentGroupingMode.Biome);

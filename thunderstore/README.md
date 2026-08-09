@@ -13,6 +13,13 @@ Organizes Valheim's Hammer and crafting stations without changing recipes, costs
 
 ---
 
-**0.2.0:** Greatly reduces Hammer-open frame loss by avoiding repeated layout work while the menu is idle.
+**0.2.1 changes**
+
+- Remembers Default or Mod View independently for each build tool. Hammer starts in Mod View; Hoe and Cultivator start in Default View.
+- Releases generated Hammer and crafting-station UI when its owning menu or scene closes.
+- Stops Hammer UI work during teleporting and shutdown.
+- Adds self-healing compatibility safeguards with rate-limited diagnostics.
+- Prevents gameplay keys from activating while typing in crafting search.
+- Removes the forced backdrop and matches custom controls to Valheim's native menu styling.
 
 Client-side only. [Source and support](https://github.com/jg224/CraftGuard)

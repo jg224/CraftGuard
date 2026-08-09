@@ -33,6 +33,7 @@ namespace InventoryUX.ApiTests
                 RequireField(module, "Hud", "m_pieceIconSpacing");
                 RequireMethod(module, "Hud", "UpdatePieceList", 4);
                 RequireMethod(module, "Hud", "GetSelectedGrid", 1);
+                RequireMethod(module, "Hud", "OnDestroy", 0);
                 RequireIntConstant(module, "Hud", "UpdatePieceList", 4, 15);
                 RequireIntConstant(module, "Hud", "UpdatePieceList", 4, 6);
                 RequireIntConstant(module, "Hud", "GetSelectedGrid", 1, 15);
@@ -45,11 +46,16 @@ namespace InventoryUX.ApiTests
                 RequireIntConstant(module, "PieceTable", "DownPiece", 0, 6);
                 RequireField(module, "InventoryGui", "m_availableRecipes");
                 RequireMethod(module, "InventoryGui", "UpdateRecipeList", 1);
+                RequireMethod(module, "InventoryGui", "OnDestroy", 0);
                 RequireProperty(module, "InventoryGui/RecipeDataPair", "Recipe");
                 RequireProperty(module, "InventoryGui/RecipeDataPair", "InterfaceElement");
                 RequireMethod(module, "Player", "IsRecipeKnown", 1);
                 RequireField(module, "Player", "m_buildPieces");
                 RequireMethod(module, "Player", "UpdateAvailablePiecesList", 0);
+                RequireMethod(module, "Player", "IsTeleporting", 0);
+                RequireMethod(module, "Player", "TakeInput", 0);
+                RequireMethod(module, "PlayerController", "TakeInput", 1);
+                RequireMethod(module, "Game", "IsShuttingDown", 0);
                 RequireField(module, "ItemDrop/ItemData/SharedData", "m_food");
                 RequireField(module, "ItemDrop/ItemData/SharedData", "m_foodStamina");
                 RequireField(module, "ItemDrop/ItemData/SharedData", "m_foodEitr");
@@ -61,6 +67,7 @@ namespace InventoryUX.ApiTests
                 RequireField(module, "Piece", "m_resources");
                 RequireField(module, "ObjectDB", "m_recipes");
                 RequireField(module, "ZNetScene", "m_prefabs");
+                RequireMethod(module, "ZNetScene", "OnDestroy", 0);
                 RequireEnumValue(module, "Piece/PieceCategory", "Misc", 0);
                 RequireEnumValue(module, "Piece/PieceCategory", "Crafting", 1);
                 RequireEnumValue(module, "Piece/PieceCategory", "BuildingWorkbench", 2);

@@ -4,24 +4,62 @@ using System.Collections.Generic;
 
 namespace InventoryUX.Patches
 {
+    internal static class HammerPatchHealth
+    {
+        internal static readonly FailureCircuitBreaker Organization =
+            new FailureCircuitBreaker("CraftGuard Hammer sorting");
+        internal static readonly FailureCircuitBreaker Decoration =
+            new FailureCircuitBreaker("CraftGuard Hammer layout");
+
+        internal static void Release(Hud hud)
+        {
+            System.Exception? failure = null;
+            try
+            {
+                HammerGroupDecorations.Release(hud);
+            }
+            catch (System.Exception exception)
+            {
+                failure = exception;
+            }
+
+            try
+            {
+                HammerGridSizer.Restore();
+            }
+            catch (System.Exception exception)
+            {
+                failure = failure == null
+                    ? exception
+                    : new System.AggregateException(failure, exception);
+            }
+
+            if (failure != null) Decoration.Trip(failure);
+        }
+    }
+
     [HarmonyPatch(typeof(PieceTable), nameof(PieceTable.UpdateAvailable))]
     internal static class PieceTableUpdateAvailablePatch
     {
         private static void Postfix(PieceTable __instance)
         {
-            if (!ModConfig.Enabled.Value || !HammerGroupDecorations.UseModView)
+            if (!ModConfig.Enabled.Value || !HammerGroupDecorations.ShouldUseModView(__instance))
             {
                 return;
             }
+
+            if (HammerPatchHealth.Organization.IsOpen) return;
 
             try
             {
                 HammerOrganizer.ReorderAvailablePieces(__instance);
                 HammerGroupDecorations.NotifyPiecesChanged();
+                HammerPatchHealth.Organization.Reset();
+                HammerPatchHealth.Decoration.Reset();
             }
             catch (System.Exception exception)
             {
-                Plugin.LogInstance.LogWarning($"Hammer organization skipped: {exception}");
+                HammerPatchHealth.Organization.Trip(exception);
             }
         }
     }
@@ -31,26 +69,55 @@ namespace InventoryUX.Patches
     {
         private static void Postfix(Hud __instance, Player player, Piece.PieceCategory category)
         {
+            if (player == null
+                || player.IsTeleporting()
+                || (Game.instance != null && Game.instance.IsShuttingDown()))
+            {
+                HammerPatchHealth.Release(__instance);
+                return;
+            }
+
             try
             {
                 if (!ModConfig.Enabled.Value)
                 {
-                    HammerGridSizer.Restore();
-                    HammerGroupDecorations.Shutdown();
+                    HammerPatchHealth.Release(__instance);
                     return;
                 }
+
+                if (HammerPatchHealth.Decoration.IsOpen) return;
 
                 HammerGridSizer.Apply(__instance);
                 List<Piece>? pieces = player.GetBuildPieces();
                 if (pieces != null)
                 {
                     HammerGroupDecorations.Apply(__instance, pieces, category);
+                    HammerPatchHealth.Decoration.Reset();
                 }
             }
             catch (System.Exception exception)
             {
-                Plugin.LogInstance.LogWarning($"Hammer labels skipped: {exception}");
+                HammerPatchHealth.Release(__instance);
+                HammerPatchHealth.Decoration.Trip(exception);
             }
+        }
+    }
+
+    [HarmonyPatch(typeof(Hud), "OnDestroy")]
+    internal static class HudDestroyPatch
+    {
+        private static void Prefix(Hud __instance)
+        {
+            HammerPatchHealth.Release(__instance);
+        }
+    }
+
+    [HarmonyPatch(typeof(ZNetScene), "OnDestroy")]
+    internal static class ZNetSceneDestroyPatch
+    {
+        private static void Prefix()
+        {
+            FoodStatsResolver.Reset();
         }
     }
 
