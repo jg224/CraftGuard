@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2 - 2026-08-09
+
+- Adds a CraftGuard menu showcase to the top of the Thunderstore Details page.
+
 ## 0.2.1 - 2026-08-09
 
 - Remembers Default or Mod View independently per build tool; Hammer starts in Mod View while Hoe and Cultivator start in Default View.

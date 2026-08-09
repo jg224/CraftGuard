@@ -1,3 +1,5 @@
+![CraftGuard organized Hammer and crafting-station menus](https://raw.githubusercontent.com/jg224/CraftGuard/main/docs/images/craftguard-showcase.png)
+
 # CraftGuard
 
 Organizes Valheim's Hammer and crafting stations without changing recipes, costs, or progression.
@@ -12,6 +14,8 @@ Organizes Valheim's Hammer and crafting stations without changing recipes, costs
 - Adds recipe views, search, and readable food stats to crafting stations.
 
 ---
+
+**0.2.2:** Adds the CraftGuard menu showcase above.
 
 **0.2.1 changes**
 

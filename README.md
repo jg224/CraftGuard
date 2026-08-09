@@ -43,7 +43,7 @@ Install [jg224-CraftGuard](https://thunderstore.io/c/valheim/p/jg224/CraftGuard/
 ### Manual
 
 1. Install BepInEx 5 for the Valheim client.
-2. Download `CraftGuard-0.2.1.zip` from the [latest release](https://github.com/jg224/CraftGuard/releases/latest).
+2. Download `CraftGuard-0.2.2.zip` from the [latest release](https://github.com/jg224/CraftGuard/releases/latest).
 3. Remove an older `InventoryUX.dll` if one is installed.
 4. Extract `CraftGuard.dll` into `Valheim/BepInEx/plugins/CraftGuard/`.
 5. Start Valheim.
