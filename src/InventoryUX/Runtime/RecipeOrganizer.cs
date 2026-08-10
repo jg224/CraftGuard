@@ -68,6 +68,30 @@ namespace InventoryUX.Runtime
         // authoritative so those patches never need to query Unity hierarchy state.
         internal static bool IsSearchFocused => _searchHasFocus;
 
+        internal static void ResetRecipeListScrollToTop(InventoryGui gui)
+        {
+            if (gui == null) return;
+
+            ScrollRect? scrollRect = gui.m_recipeEnsureVisible != null
+                ? gui.m_recipeEnsureVisible.GetComponent<ScrollRect>()
+                : null;
+            if (scrollRect == null && gui.m_recipeListRoot != null)
+            {
+                scrollRect = gui.m_recipeListRoot.GetComponentInParent<ScrollRect>();
+            }
+
+            if (scrollRect != null)
+            {
+                scrollRect.StopMovement();
+                scrollRect.verticalNormalizedPosition = 1f;
+            }
+
+            if (gui.m_recipeListScroll != null)
+            {
+                gui.m_recipeListScroll.value = 1f;
+            }
+        }
+
         internal static void Organize(InventoryGui gui)
         {
             if (gui.m_recipeListRoot == null)

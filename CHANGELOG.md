@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 - 2026-08-10
+
+- Resets the crafting-station recipe scrollbar to the top when switching between Craft and Upgrade, preventing the rebuilt list from opening midway down or appearing empty.
+
 ## 0.3.0 - 2026-08-09
 
 - Renames the mod from CraftGuard to CraftIndex while retaining the existing plugin identifier and settings file.
