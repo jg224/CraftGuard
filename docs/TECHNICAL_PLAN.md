@@ -1,13 +1,13 @@
-# CraftGuard technical implementation plan
+# CraftIndex technical implementation plan
 
 ## Verified game surfaces
 
 This implementation targets the assemblies researched on 2026-08-06 at `C:\ValheimServer\server`.
 
-- `PieceTable.UpdateAvailable` is the authoritative Hammer visibility gate. CraftGuard runs after it and reorders only the resulting `m_availablePieces` buckets.
-- `Hud.UpdatePieceList` remains the native renderer and input surface. CraftGuard adds non-interactive labels to its existing icon objects.
-- `Player.GetAvailableRecipes` feeds `InventoryGui.UpdateRecipeList`. At any active crafting station, CraftGuard filters/sorts the resulting private `RecipeDataPair` list after vanilla has built it, then moves the same row objects and adds group headers.
-- `InventoryGui.UpdateRecipe` remains completely vanilla; CraftGuard does not append station-upgrade or guidance text to recipe details.
+- `PieceTable.UpdateAvailable` is the authoritative Hammer visibility gate. CraftIndex runs after it and reorders only the resulting `m_availablePieces` buckets.
+- `Hud.UpdatePieceList` remains the native renderer and input surface. CraftIndex adds non-interactive labels to its existing icon objects.
+- `Player.GetAvailableRecipes` feeds `InventoryGui.UpdateRecipeList`. At any active crafting station, CraftIndex filters/sorts the resulting private `RecipeDataPair` list after vanilla has built it, then moves the same row objects and adds group headers.
+- `InventoryGui.UpdateRecipe` remains completely vanilla; CraftIndex does not append station-upgrade or guidance text to recipe details.
 - The station mode strip is parented to the non-scrolling crafting panel and positioned from the vanilla Upgrade tab. Search is parented to the recipe viewport above the scrolling content.
 
 ## Data flow
@@ -41,7 +41,7 @@ Crafting-station search never queries `ObjectDB`. It matches text only against t
 ## Known differences from the concept mockup
 
 - Every active crafting station has fixed controls and search. Equipment stations show Default/Type/Biome; food-oriented stations show Default/Stat/Biome. Personal inventory crafting remains vanilla.
-- CraftGuard retains Valheim's 15×6 logical Hammer grid and expands only the panel/mask height by one native row spacing.
+- CraftIndex retains Valheim's 15×6 logical Hammer grid and expands only the panel/mask height by one native row spacing.
 - Hammer Crafting distributes six enlarged family rows across that height. Misc., Building, Heavy Build, and Furniture can use seven compact visual shelves without adding logical grid cells.
 - Station-upgrade information is intentionally absent from recipe details.
 - Built-but-out-of-range detection is deferred because the reviewed public state does not reliably expose that condition without a world scan.

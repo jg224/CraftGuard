@@ -21,7 +21,7 @@ namespace InventoryUX.Core
             }
 
             // Keep the non-Hammer building tools unobtrusive on first use. Unknown and
-            // modded piece tables retain CraftGuard's established Mod View default.
+            // modded piece tables retain CraftIndex's established Mod View default.
             return normalizedKey.IndexOf("HoePieceTable", StringComparison.OrdinalIgnoreCase) < 0
                 && normalizedKey.IndexOf("CultivatorPieceTable", StringComparison.OrdinalIgnoreCase) < 0;
         }

@@ -9,7 +9,7 @@ namespace InventoryUX.Patches
     {
         private static bool Prefix(ref bool __result)
         {
-            if (!RecipeOrganizer.IsSearchFocused) return true;
+            if (!RecipeOrganizer.IsSearchFocused && !HammerGroupDecorations.IsSearchFocused) return true;
             __result = false;
             return false;
         }
@@ -20,7 +20,7 @@ namespace InventoryUX.Patches
     {
         private static bool Prefix(ref bool __result)
         {
-            if (!RecipeOrganizer.IsSearchFocused) return true;
+            if (!RecipeOrganizer.IsSearchFocused && !HammerGroupDecorations.IsSearchFocused) return true;
             __result = false;
             return false;
         }
@@ -31,7 +31,7 @@ namespace InventoryUX.Patches
     {
         private static bool Prefix(ref bool __result)
         {
-            if (!RecipeOrganizer.IsSearchFocused) return true;
+            if (!RecipeOrganizer.IsSearchFocused && !HammerGroupDecorations.IsSearchFocused) return true;
             __result = false;
             return false;
         }
@@ -41,7 +41,7 @@ namespace InventoryUX.Patches
     internal static class InventoryGuiUpdateRecipeListPatch
     {
         private static readonly FailureCircuitBreaker Breaker =
-            new FailureCircuitBreaker("CraftGuard recipe organization");
+            new FailureCircuitBreaker("CraftIndex recipe organization");
 
         private static void Prefix(InventoryGui __instance)
         {

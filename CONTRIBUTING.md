@@ -1,6 +1,6 @@
-# Contributing to CraftGuard
+# Contributing to CraftIndex
 
-Thanks for helping improve CraftGuard.
+Thanks for helping improve CraftIndex.
 
 ## Before opening a change
 
@@ -14,7 +14,7 @@ Thanks for helping improve CraftGuard.
 The project requires a local Valheim/BepInEx installation for reference assemblies:
 
 ```powershell
-dotnet build CraftGuard.sln -c Release -p:ValheimRoot="C:\path\to\Valheim"
+dotnet build CraftIndex.sln -c Release -p:ValheimRoot="C:\path\to\Valheim"
 ```
 
 Run both verification suites after the build:

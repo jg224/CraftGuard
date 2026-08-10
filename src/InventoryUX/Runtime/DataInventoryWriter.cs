@@ -22,7 +22,7 @@ namespace InventoryUX.Runtime
 
             try
             {
-                string directory = Path.Combine(Paths.ConfigPath, "CraftGuard");
+                string directory = Path.Combine(Paths.ConfigPath, "CraftIndex");
                 Directory.CreateDirectory(directory);
                 string path = Path.Combine(directory, "loaded-data-inventory.csv");
                 File.WriteAllText(path, BuildCsv(), new UTF8Encoding(true));

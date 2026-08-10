@@ -23,6 +23,9 @@ namespace InventoryUX.CoreTests
                 SortingDoesNotDependOnCraftability,
                 EmptyFutureGroupsAreNeverCreated,
                 SearchMatchesOnlyVisibleRecipeFacts,
+                HammerSearchMatchesNamesAndIds,
+                FavoritePiecePreferencesAreStable,
+                PlantEverythingPiecesUseCustomPlantDetection,
                 MiscShelfSmokeTestCompletesAllRows,
                 ShelfPlannerNeverOverflowsSupportedLayouts,
                 HammerTabsSortEarlyToLateWithoutAlphabeticalFallback,
@@ -177,6 +180,30 @@ namespace InventoryUX.CoreTests
             Equal(false, RecipeSearch.Matches(sword, "silver"), "Unmatched future term");
             Equal(true, RecipeSearch.Matches(sword, ""), "Empty search");
             Equal(true, RecipeSearch.MatchesPrepared(sword, "bronze"), "Prepared search query");
+        }
+
+        private static void HammerSearchMatchesNamesAndIds()
+        {
+            string indexed = HammerPieceSearch.Normalize("piece_wall Wood Wall");
+            Equal(true, HammerPieceSearch.Matches(indexed, "wood wall"), "Hammer search localized name");
+            Equal(true, HammerPieceSearch.Matches(indexed, "piece_wall"), "Hammer search prefab id");
+            Equal(true, HammerPieceSearch.MatchesPrepared(indexed, HammerPieceSearch.Normalize("wood wall")),
+                "Prepared Hammer search query");
+            Equal(false, HammerPieceSearch.Matches(indexed, "stone"), "Hammer search mismatch");
+        }
+
+        private static void FavoritePiecePreferencesAreStable()
+        {
+            string added = FavoritePiecePreferences.Toggle("piece_wall", "piece_floor");
+            Equal("piecefloor;piecewall", added, "Favorites serialize deterministically");
+            Equal("piecewall", FavoritePiecePreferences.Toggle(added, "piece_floor"), "Favorite toggles off");
+        }
+
+        private static void PlantEverythingPiecesUseCustomPlantDetection()
+        {
+            Equal(true, PlantEverythingClassifier.IsCustomPlant("RaspberryBush"), "PlantEverything berry bush");
+            Equal(true, PlantEverythingClassifier.IsCustomPlant("PE_VineAsh_sapling(Clone)"), "PlantEverything vine clone");
+            Equal(false, PlantEverythingClassifier.IsCustomPlant("sapling_carrot"), "Vanilla crop stays in its normal group");
         }
 
         private static void MiscShelfSmokeTestCompletesAllRows()
