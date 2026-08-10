@@ -1,5 +1,6 @@
 using BepInEx.Configuration;
 using InventoryUX.Core;
+using System.Collections.Generic;
 
 namespace InventoryUX.Runtime
 {
@@ -11,6 +12,7 @@ namespace InventoryUX.Runtime
         internal static ConfigEntry<bool> ShowSeparators { get; private set; } = null!;
         internal static ConfigEntry<bool> ShowHammerPieceNames { get; private set; } = null!;
         internal static ConfigEntry<string> HammerToolViews { get; private set; } = null!;
+        internal static ConfigEntry<string> FavoritePieces { get; private set; } = null!;
         internal static ConfigEntry<bool> OrganizeCrafting { get; private set; } = null!;
         internal static ConfigEntry<bool> OrganizeBuilding { get; private set; } = null!;
         internal static ConfigEntry<bool> OrganizeHeavyBuilding { get; private set; } = null!;
@@ -19,6 +21,8 @@ namespace InventoryUX.Runtime
         internal static ConfigEntry<string> WorkbenchGrouping { get; private set; } = null!;
         internal static ConfigEntry<string> FoodGrouping { get; private set; } = null!;
         internal static ConfigEntry<bool> WriteDataInventoryOnStartup { get; private set; } = null!;
+        private static string _favoriteCacheSource = string.Empty;
+        private static HashSet<string> _favoriteCache = new HashSet<string>(System.StringComparer.Ordinal);
 
         internal static EquipmentGroupingMode EquipmentMode
         {
@@ -58,7 +62,7 @@ namespace InventoryUX.Runtime
         internal static void Bind(ConfigFile config)
         {
             File = config;
-            Enabled = config.Bind("General", "Enabled", true, "Enable CraftGuard.");
+            Enabled = config.Bind("General", "Enabled", true, "Enable CraftIndex.");
             ShowSeparators = config.Bind("General", "ShowSeparators", true, "Show restrained separator lines around recipe groups.");
             ShowHammerPieceNames = config.Bind("Hammer", "ShowPieceNames", false, "Show names beneath individual pieces in organized Hammer tabs.");
             HammerToolViews = config.Bind(
@@ -66,6 +70,11 @@ namespace InventoryUX.Runtime
                 "ToolViewModes",
                 ToolViewPreferences.DefaultValue,
                 "Remember Default or Mod View independently for each build tool.");
+            FavoritePieces = config.Bind(
+                "Hammer",
+                "FavoritePieces",
+                string.Empty,
+                "Semicolon-separated piece identifiers pinned to CraftIndex's Favorites section. Middle-click a piece to toggle it.");
             OrganizeCrafting = config.Bind("Hammer", "OrganizeCrafting", true, "Group stations and their known extensions.");
             OrganizeBuilding = config.Bind("Hammer", "OrganizeBuilding", true, "Group building pieces by material and structure.");
             OrganizeHeavyBuilding = config.Bind("Hammer", "OrganizeHeavyBuilding", true, "Group heavy building pieces by material and structure.");
@@ -79,7 +88,7 @@ namespace InventoryUX.Runtime
                 "Diagnostics",
                 "WriteDataInventoryOnStartup",
                 false,
-                "Write a CSV inventory of the currently loaded vanilla and modded pieces/recipes to BepInEx/config/CraftGuard once per launch.");
+                "Write a CSV inventory of the currently loaded vanilla and modded pieces/recipes to BepInEx/config/CraftIndex once per launch.");
         }
 
         internal static void SetEquipmentMode(EquipmentGroupingMode mode)
@@ -103,6 +112,29 @@ namespace InventoryUX.Runtime
         {
             HammerToolViews.Value = ToolViewPreferences.Set(HammerToolViews.Value, toolKey, useModView);
             File.Save();
+        }
+
+        internal static bool IsFavorite(string pieceKey)
+        {
+            EnsureFavoriteCache();
+            return _favoriteCache.Contains(HammerPieceSearch.Normalize(pieceKey));
+        }
+
+        internal static bool ToggleFavorite(string pieceKey)
+        {
+            FavoritePieces.Value = FavoritePiecePreferences.Toggle(FavoritePieces.Value, pieceKey);
+            _favoriteCacheSource = string.Empty;
+            EnsureFavoriteCache();
+            File.Save();
+            return _favoriteCache.Contains(HammerPieceSearch.Normalize(pieceKey));
+        }
+
+        private static void EnsureFavoriteCache()
+        {
+            string source = FavoritePieces.Value ?? string.Empty;
+            if (string.Equals(source, _favoriteCacheSource, System.StringComparison.Ordinal)) return;
+            _favoriteCache = FavoritePiecePreferences.Parse(source);
+            _favoriteCacheSource = source;
         }
 
     }

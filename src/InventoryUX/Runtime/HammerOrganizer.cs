@@ -68,6 +68,17 @@ namespace InventoryUX.Runtime
         internal static PieceGroup Classify(Piece piece, Piece.PieceCategory category)
             => GetMetadata(piece, category).Group;
 
+        internal static string GetPieceKey(Piece piece)
+            => HammerPieceSearch.Normalize(piece.gameObject.name);
+
+        internal static bool MatchesPreparedSearch(
+            Piece piece,
+            Piece.PieceCategory category,
+            string normalizedQuery)
+            => HammerPieceSearch.MatchesPrepared(
+                GetMetadata(piece, category).SearchableText,
+                normalizedQuery);
+
         private static PieceGroup ClassifyUncached(Piece piece, Piece.PieceCategory category)
         {
             switch (category)
@@ -188,6 +199,8 @@ namespace InventoryUX.Runtime
             CraftingPieceLayout craftingLayout = default;
             HammerSortKey progression = default;
             string localizedName = string.Empty;
+            string searchableText = SearchText(piece)
+                + Normalize(" " + Localize(piece.m_name) + " " + Localize(piece.m_description));
 
             if (category == Piece.PieceCategory.Crafting)
             {
@@ -209,7 +222,8 @@ namespace InventoryUX.Runtime
                 group,
                 craftingLayout,
                 progression,
-                localizedName);
+                localizedName,
+                searchableText);
             MetadataByPieceCategory[key] = metadata;
             return metadata;
         }
@@ -265,6 +279,8 @@ namespace InventoryUX.Runtime
 
             string id = SearchText(piece);
             string components = ComponentNames(piece);
+            if (PlantEverythingClassifier.IsCustomPlant(piece.gameObject.name))
+                return new PieceGroup("Custom Plants", 6, 0);
             if (ContainsAny(id, "cartography", "maptable"))
                 return new PieceGroup("Utility", 5, 0);
             int travelOrder = HammerProgressionSorter.MiscTravelOrder(id);
@@ -528,7 +544,8 @@ namespace InventoryUX.Runtime
             PieceGroup group,
             CraftingPieceLayout craftingLayout,
             HammerSortKey progression,
-            string localizedName)
+            string localizedName,
+            string searchableText)
         {
             Piece = piece;
             Action = action;
@@ -536,6 +553,7 @@ namespace InventoryUX.Runtime
             CraftingLayout = craftingLayout;
             Progression = progression;
             LocalizedName = localizedName;
+            SearchableText = searchableText;
         }
 
         internal Piece Piece { get; }
@@ -544,6 +562,7 @@ namespace InventoryUX.Runtime
         internal CraftingPieceLayout CraftingLayout { get; }
         internal HammerSortKey Progression { get; }
         internal string LocalizedName { get; }
+        internal string SearchableText { get; }
 
         internal HammerSortEntry ToSortEntry(Piece piece, int originalIndex)
             => new HammerSortEntry(

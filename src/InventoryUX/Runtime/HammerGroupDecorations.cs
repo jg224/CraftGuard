@@ -28,6 +28,7 @@ namespace InventoryUX.Runtime
         private const float LabelHeight = 14f;
         private const float ViewControlsHeight = 76f;
         private const float ViewButtonGap = 6f;
+        private const float HammerSearchHeight = 30f;
 
         private static readonly FieldInfo PieceIconsField = AccessTools.Field(typeof(Hud), "m_pieceIcons");
         private static readonly FieldInfo PlayerBuildPiecesField = AccessTools.Field(typeof(Player), "m_buildPieces");
@@ -41,6 +42,8 @@ namespace InventoryUX.Runtime
             new Dictionary<int, NativeBackgroundState>();
         private static readonly Dictionary<int, UIInputHandler> HoverInputs =
             new Dictionary<int, UIInputHandler>();
+        private static readonly Dictionary<int, Piece> FavoritePiecesByInput =
+            new Dictionary<int, Piece>();
         private static readonly List<CategoryCardView> CategoryCardPool = new List<CategoryCardView>();
         private static readonly List<Image> DecorationLinePool = new List<Image>();
         private static readonly List<GameObject> IconDecorationPool = new List<GameObject>();
@@ -73,8 +76,18 @@ namespace InventoryUX.Runtime
         private static Image? _modViewBackground;
         private static int _viewControlsHudId = int.MinValue;
         private static int _cleanedGeneratedBackgroundHudId = int.MinValue;
+        private static GameObject? _persistentHammerSearch;
+        private static TMP_InputField? _hammerSearchInput;
+        private static int _hammerSearchHudId = int.MinValue;
+        private static string _hammerSearchText = string.Empty;
+        private static string _hammerSearchQuery = string.Empty;
+        private static bool _hammerSearchHasFocus;
+        private static Piece.PieceCategory _hammerSearchCategory = Piece.PieceCategory.Max;
+        private static GameObject? _hammerNoResults;
+        private static bool _refreshingHammerList;
 
         internal static bool UseModView { get; private set; } = true;
+        internal static bool IsSearchFocused => _hammerSearchHasFocus;
 
         internal static bool ShouldUseModView(PieceTable table)
         {
@@ -121,6 +134,9 @@ namespace InventoryUX.Runtime
                 UseModView = ShouldUseModView(activeTable);
             }
             EnsurePersistentViewControls(hud, hudInstanceId);
+            PrepareHammerSearchCategory(category);
+            EnsurePersistentHammerSearch(hud, hudInstanceId);
+            UpdateHammerSearchVisibility(category);
             if (_cleanedGeneratedBackgroundHudId != hudInstanceId)
             {
                 RemoveGeneratedWarmBackgrounds(hud);
@@ -149,9 +165,26 @@ namespace InventoryUX.Runtime
             IList icons = (IList)PieceIconsField.GetValue(hud);
             int count = Math.Min(pieces.Count, icons.Count);
             Clear(hud);
+            SetHammerNoResultsVisible(hud, false);
             _categoryHeaderBackgroundForPass = FindVanillaCategoryHeaderBackground(hud);
             try
             {
+                int visiblePieceCount = CountVisiblePieces(pieces, count, category);
+                if (visiblePieceCount == 0 && !string.IsNullOrWhiteSpace(_hammerSearchText))
+                {
+                    var emptySlots = new int[count];
+                    for (int i = 0; i < emptySlots.Length; i++) emptySlots[i] = -1;
+                    int repairIndex = FindRepairIndex(pieces, count);
+                    if (repairIndex >= 0) EnsurePersistentRepair(hud, pieces, icons, repairIndex);
+                    ConfigureNativePieceCells(icons, pieces, count, emptySlots, repairIndex);
+                    _visualSlots = emptySlots;
+                    _visualWidth = GridWidth;
+                    _visualHeight = GridHeight;
+                    SetHammerNoResultsVisible(hud, true);
+                    RememberState(hudInstanceId, category, pieces.Count, showSeparators, showPieceNames);
+                    return;
+                }
+
                 if (category == Piece.PieceCategory.Crafting && CanUseReferenceCraftingLayout(pieces, count))
                 {
                     CraftingLayoutResult layout = BuildCraftingLayout(pieces, count);
@@ -159,15 +192,15 @@ namespace InventoryUX.Runtime
                     _repairLogicalIndex = layout.RepairIndex;
                     EnsurePersistentRepair(hud, pieces, icons, layout.RepairIndex);
                     ApplyGridPermutation(hud, icons, layout, count);
-                    ConfigureNativePieceCells(icons, count, layout.Slots, layout.RepairIndex);
+                    ConfigureNativePieceCells(icons, pieces, count, layout.Slots, layout.RepairIndex);
                     AddReferenceCraftingRows(hud, pieces, icons, count, layout);
                     _visualWidth = GridWidth;
-                    _visualHeight = GridHeight;
+                    _visualHeight = layout.VisibleRows;
                     RememberState(hudInstanceId, category, pieces.Count, showSeparators, showPieceNames);
                     return;
                 }
 
-                if (category != Piece.PieceCategory.Crafting && CanUseShelfLayout(pieces, count))
+                if (category != Piece.PieceCategory.Crafting && CanUseShelfLayout(pieces, count, category))
                 {
                     ShelfLayoutResult layout = BuildShelfLayout(hud, pieces, count, category);
                     _visualSlots = layout.Slots;
@@ -178,7 +211,7 @@ namespace InventoryUX.Runtime
                     {
                         EnsurePersistentRepair(hud, pieces, icons, layout.RepairIndex);
                     }
-                    ConfigureNativePieceCells(icons, count, layout.Slots, layout.RepairIndex);
+                    ConfigureNativePieceCells(icons, pieces, count, layout.Slots, layout.RepairIndex);
                     ApplyShelfPositions(hud, icons, layout, count);
                     AddShelfRows(hud, pieces, icons, count, layout);
                     RememberState(hudInstanceId, category, pieces.Count, showSeparators, showPieceNames);
@@ -193,6 +226,10 @@ namespace InventoryUX.Runtime
                     bool groupStart = !string.Equals(previous, label, StringComparison.Ordinal);
                     GameObject iconRoot = GetIconGameObject(icons[i]!);
                     AddTileTint(iconRoot, palette, groupStart);
+                    if (ModConfig.IsFavorite(HammerOrganizer.GetPieceKey(pieces[i])))
+                    {
+                        AddFavoriteMarker(hud, iconRoot);
+                    }
                     if (groupStart && !IsStandaloneAction(category, label))
                     {
                         AddLabel(hud, iconRoot, CompactLabel(label), palette);
@@ -367,6 +404,7 @@ namespace InventoryUX.Runtime
         {
             var grouped = new List<CraftingEntry>[GridHeight];
             for (int i = 0; i < grouped.Length; i++) grouped[i] = new List<CraftingEntry>();
+            var favorites = new List<CraftingEntry>();
 
             int repairIndex = -1;
             for (int pieceIndex = 0; pieceIndex < count; pieceIndex++)
@@ -377,39 +415,57 @@ namespace InventoryUX.Runtime
                     repairIndex = pieceIndex;
                     continue;
                 }
+                if (!HammerOrganizer.MatchesPreparedSearch(piece, Piece.PieceCategory.Crafting, _hammerSearchQuery)) continue;
 
                 CraftingPieceLayout metadata = CraftingLayoutMetadata.Resolve(piece);
-                grouped[(int)metadata.Section].Add(new CraftingEntry(pieceIndex, metadata, Localize(piece.m_name)));
+                var entry = new CraftingEntry(pieceIndex, metadata, Localize(piece.m_name));
+                if (ModConfig.IsFavorite(HammerOrganizer.GetPieceKey(piece))) favorites.Add(entry);
+                else grouped[(int)metadata.Section].Add(entry);
             }
 
+            favorites.Sort(CompareCraftingEntries);
             for (int i = 0; i < grouped.Length; i++)
             {
-                grouped[i].Sort((left, right) =>
-                {
-                    int comparison = left.Metadata.SortOrder.CompareTo(right.Metadata.SortOrder);
-                    if (comparison != 0) return comparison;
-                    comparison = string.Compare(left.Name, right.Name, StringComparison.CurrentCultureIgnoreCase);
-                    return comparison != 0 ? comparison : left.PieceIndex.CompareTo(right.PieceIndex);
-                });
+                grouped[i].Sort(CompareCraftingEntries);
             }
 
+            int layoutRows = GridHeight + (favorites.Count > 0 ? 1 : 0);
             var slots = new int[count];
             for (int i = 0; i < slots.Length; i++) slots[i] = -1;
             var xOffsets = new float[count];
-            var used = new bool[GridWidth * GridHeight];
-            var rowSections = new CraftingSection?[GridHeight];
-            var representatives = new int[GridHeight];
+            var used = new bool[GridWidth * layoutRows];
+            var rowLabels = new string[layoutRows];
+            var representatives = new int[layoutRows];
             for (int i = 0; i < representatives.Length; i++) representatives[i] = -1;
             var subgroupBreaks = new List<SubgroupDivider>();
             var overflow = new List<int>();
 
             int visibleRow = 0;
-            for (int sectionIndex = 0; sectionIndex < grouped.Length && visibleRow < GridHeight; sectionIndex++)
+            if (favorites.Count > 0)
+            {
+                rowLabels[visibleRow] = "FAVORITES";
+                representatives[visibleRow] = favorites[0].PieceIndex;
+                int column = CategoryColumns;
+                for (int itemIndex = 0; itemIndex < favorites.Count; itemIndex++)
+                {
+                    CraftingEntry entry = favorites[itemIndex];
+                    if (column >= GridWidth) overflow.Add(entry.PieceIndex);
+                    else
+                    {
+                        int slot = visibleRow * GridWidth + column++;
+                        slots[entry.PieceIndex] = slot;
+                        used[slot] = true;
+                    }
+                }
+                visibleRow++;
+            }
+
+            for (int sectionIndex = 0; sectionIndex < grouped.Length && visibleRow < layoutRows; sectionIndex++)
             {
                 List<CraftingEntry> entries = grouped[sectionIndex];
                 if (entries.Count == 0) continue;
 
-                rowSections[visibleRow] = (CraftingSection)sectionIndex;
+                rowLabels[visibleRow] = CraftingLayoutMetadata.Label((CraftingSection)sectionIndex);
                 representatives[visibleRow] = FindCategoryRepresentative(
                     entries,
                     (CraftingSection)sectionIndex);
@@ -448,7 +504,7 @@ namespace InventoryUX.Runtime
 
             for (int i = 0; i < overflow.Count; i++)
             {
-                int slot = FirstFreePieceSlot(used);
+                int slot = FirstFreePieceSlot(used, layoutRows);
                 if (slot < 0) break;
                 slots[overflow[i]] = slot;
                 used[slot] = true;
@@ -458,18 +514,30 @@ namespace InventoryUX.Runtime
                 slots,
                 xOffsets,
                 repairIndex,
-                rowSections,
+                rowLabels,
                 representatives,
                 subgroupBreaks,
                 visibleRow);
         }
 
-        private static bool CanUseShelfLayout(IReadOnlyList<Piece> pieces, int count)
+        private static int CompareCraftingEntries(CraftingEntry left, CraftingEntry right)
+        {
+            int comparison = left.Metadata.SortOrder.CompareTo(right.Metadata.SortOrder);
+            if (comparison != 0) return comparison;
+            comparison = string.Compare(left.Name, right.Name, StringComparison.CurrentCultureIgnoreCase);
+            return comparison != 0 ? comparison : left.PieceIndex.CompareTo(right.PieceIndex);
+        }
+
+        private static bool CanUseShelfLayout(
+            IReadOnlyList<Piece> pieces,
+            int count,
+            Piece.PieceCategory category)
         {
             int ordinary = 0;
             for (int i = 0; i < count; i++)
             {
-                if (!CraftingLayoutMetadata.IsRepair(pieces[i])) ordinary++;
+                if (!CraftingLayoutMetadata.IsRepair(pieces[i])
+                    && HammerOrganizer.MatchesPreparedSearch(pieces[i], category, _hammerSearchQuery)) ordinary++;
             }
             return ordinary > 0 && ordinary <= ShelfColumns * ShelfRows;
         }
@@ -489,7 +557,19 @@ namespace InventoryUX.Runtime
                     repairIndex = i;
                     continue;
                 }
-                sourceIndices.Add(i);
+            }
+
+            for (int favoritePass = 0; favoritePass < 2; favoritePass++)
+            {
+                bool favorites = favoritePass == 0;
+                for (int i = 0; i < count; i++)
+                {
+                    Piece piece = pieces[i];
+                    if (CraftingLayoutMetadata.IsRepair(piece)
+                        || !HammerOrganizer.MatchesPreparedSearch(piece, category, _hammerSearchQuery)) continue;
+                    bool favorite = ModConfig.IsFavorite(HammerOrganizer.GetPieceKey(piece));
+                    if (favorite == favorites) sourceIndices.Add(i);
+                }
             }
 
             var labels = new string[sourceIndices.Count];
@@ -501,7 +581,9 @@ namespace InventoryUX.Runtime
             {
                 Piece piece = pieces[sourceIndices[i]];
                 PieceGroup group = HammerOrganizer.Classify(piece, category);
-                string label = HammerOrganizer.GetLabel(piece, category) ?? group.Label;
+                string label = ModConfig.IsFavorite(HammerOrganizer.GetPieceKey(piece))
+                    ? "Favorites"
+                    : HammerOrganizer.GetLabel(piece, category) ?? group.Label;
                 labels[i] = label;
                 subgroups[i] = group.Suborder;
                 if (i == 0 || string.Equals(previousLabel, label, StringComparison.Ordinal))
@@ -771,19 +853,48 @@ namespace InventoryUX.Runtime
             return entries[0].PieceIndex;
         }
 
+        private static int CountVisiblePieces(
+            IReadOnlyList<Piece> pieces,
+            int count,
+            Piece.PieceCategory category)
+        {
+            int visible = 0;
+            for (int i = 0; i < count; i++)
+            {
+                if (CraftingLayoutMetadata.IsRepair(pieces[i])) continue;
+                if (HammerOrganizer.MatchesPreparedSearch(pieces[i], category, _hammerSearchQuery)) visible++;
+            }
+            return visible;
+        }
+
+        private static int FindRepairIndex(IReadOnlyList<Piece> pieces, int count)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                if (CraftingLayoutMetadata.IsRepair(pieces[i])) return i;
+            }
+            return -1;
+        }
+
         private static bool CanUseReferenceCraftingLayout(IReadOnlyList<Piece> pieces, int count)
         {
             int ordinaryPieces = 0;
+            bool hasFavorite = false;
             for (int i = 0; i < count; i++)
             {
-                if (!CraftingLayoutMetadata.IsRepair(pieces[i])) ordinaryPieces++;
+                Piece piece = pieces[i];
+                if (CraftingLayoutMetadata.IsRepair(piece)
+                    || !HammerOrganizer.MatchesPreparedSearch(piece, Piece.PieceCategory.Crafting, _hammerSearchQuery)) continue;
+                ordinaryPieces++;
+                if (ModConfig.IsFavorite(HammerOrganizer.GetPieceKey(piece))) hasFavorite = true;
             }
-            return ordinaryPieces > 0 && ordinaryPieces <= (GridWidth - CategoryColumns) * GridHeight;
+            int rows = GridHeight + (hasFavorite ? 1 : 0);
+            return ordinaryPieces > 0 && ordinaryPieces <= (GridWidth - CategoryColumns) * rows;
         }
 
-        private static int FirstFreePieceSlot(bool[] used)
+        private static int FirstFreePieceSlot(bool[] used, int rows)
         {
-            for (int row = 0; row < GridHeight; row++)
+            for (int row = 0; row < rows; row++)
             {
                 for (int column = CategoryColumns; column < GridWidth; column++)
                 {
@@ -806,9 +917,14 @@ namespace InventoryUX.Runtime
             for (int pieceIndex = 0; pieceIndex < count; pieceIndex++)
             {
                 if (pieceIndex == layout.RepairIndex || layout.Slots[pieceIndex] < 0) continue;
+                GameObject iconRoot = GetIconGameObject(icons[pieceIndex]!);
+                if (ModConfig.IsFavorite(HammerOrganizer.GetPieceKey(pieces[pieceIndex])))
+                {
+                    AddFavoriteMarker(hud, iconRoot);
+                }
                 if (ModConfig.ShowHammerPieceNames.Value)
                 {
-                    AddReferenceTile(hud, GetIconGameObject(icons[pieceIndex]!), pieces[pieceIndex]);
+                    AddReferenceTile(hud, iconRoot, pieces[pieceIndex]);
                 }
             }
 
@@ -816,14 +932,19 @@ namespace InventoryUX.Runtime
             {
                 if (row < layout.VisibleRows - 1 && ModConfig.ShowSeparators.Value)
                 {
-                    AddRowSeparator(hud, templateRect, row);
+                    AddRowSeparator(hud, templateRect, row, CraftingRowPitch(hud, layout.VisibleRows));
                 }
 
-                CraftingSection? section = layout.RowSections[row];
                 int representative = layout.Representatives[row];
-                if (section.HasValue && representative >= 0)
+                if (!string.IsNullOrEmpty(layout.RowLabels[row]) && representative >= 0)
                 {
-                    AddCategoryCard(hud, templateRect, row, section.Value, pieces[representative]);
+                    AddCategoryCard(
+                        hud,
+                        templateRect,
+                        row,
+                        CraftingRowPitch(hud, layout.VisibleRows),
+                        layout.RowLabels[row],
+                        pieces[representative]);
                 }
             }
 
@@ -831,7 +952,11 @@ namespace InventoryUX.Runtime
             {
                 for (int i = 0; i < layout.SubgroupBreaks.Count; i++)
                 {
-                    AddSubgroupSeparator(hud, templateRect, layout.SubgroupBreaks[i]);
+                    AddSubgroupSeparator(
+                        hud,
+                        templateRect,
+                        layout.SubgroupBreaks[i],
+                        CraftingRowPitch(hud, layout.VisibleRows));
                 }
             }
         }
@@ -846,9 +971,15 @@ namespace InventoryUX.Runtime
             RectTransform templateRect = (RectTransform)GetIconGameObject(icons[0]!).transform;
             for (int pieceIndex = 0; pieceIndex < count; pieceIndex++)
             {
-                if (layout.Slots[pieceIndex] >= 0 && ModConfig.ShowHammerPieceNames.Value)
+                if (layout.Slots[pieceIndex] < 0) continue;
+                GameObject iconRoot = GetIconGameObject(icons[pieceIndex]!);
+                if (ModConfig.IsFavorite(HammerOrganizer.GetPieceKey(pieces[pieceIndex])))
                 {
-                    AddReferenceTile(hud, GetIconGameObject(icons[pieceIndex]!), pieces[pieceIndex]);
+                    AddFavoriteMarker(hud, iconRoot);
+                }
+                if (ModConfig.ShowHammerPieceNames.Value)
+                {
+                    AddReferenceTile(hud, iconRoot, pieces[pieceIndex]);
                 }
             }
 
@@ -941,6 +1072,45 @@ namespace InventoryUX.Runtime
             name.outlineWidth = 0.22f;
             name.outlineColor = new Color32(0, 0, 0, 255);
             name.raycastTarget = false;
+        }
+
+        private static void AddFavoriteMarker(Hud hud, GameObject iconRoot)
+        {
+            Transform? existing = iconRoot.transform.Find(Prefix + "FavoriteMarker");
+            GameObject markerObject;
+            if (existing != null)
+            {
+                markerObject = existing.gameObject;
+                markerObject.SetActive(true);
+            }
+            else
+            {
+                markerObject = new GameObject(
+                    Prefix + "FavoriteMarker",
+                    typeof(RectTransform),
+                    typeof(TextMeshProUGUI));
+                markerObject.transform.SetParent(iconRoot.transform, false);
+            }
+
+            TrackIconDecoration(markerObject);
+            markerObject.transform.SetAsLastSibling();
+            var rect = (RectTransform)markerObject.transform;
+            rect.anchorMin = new Vector2(1f, 1f);
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(1f, 1f);
+            rect.anchoredPosition = new Vector2(-2f, -1f);
+            rect.sizeDelta = new Vector2(22f, 22f);
+
+            TextMeshProUGUI marker = markerObject.GetComponent<TextMeshProUGUI>();
+            marker.text = "★";
+            marker.font = hud.m_pieceDescription != null ? hud.m_pieceDescription.font : null;
+            marker.fontSize = 17f;
+            marker.fontStyle = FontStyles.Bold;
+            marker.color = new Color(0.93f, 0.63f, 0.25f, 1f);
+            marker.alignment = TextAlignmentOptions.TopRight;
+            marker.outlineWidth = 0.22f;
+            marker.outlineColor = Color.black;
+            marker.raycastTarget = false;
         }
 
         private static void AddCategoryCard(
@@ -1156,11 +1326,11 @@ namespace InventoryUX.Runtime
         private static void AddSubgroupSeparator(
             Hud hud,
             RectTransform templateRect,
-            SubgroupDivider divider)
+            SubgroupDivider divider,
+            float rowPitch)
         {
             float nativeSpacing = hud.m_pieceIconSpacing;
             float spacing = nativeSpacing * CraftingColumnPitchScale;
-            float rowPitch = HammerGridDimensions.CraftingRowPitch(hud);
             float nextItemX = divider.Column * spacing
                 + CraftingContentShift(nativeSpacing)
                 + divider.GapCount * SubgroupSpacing;
@@ -1266,8 +1436,257 @@ namespace InventoryUX.Runtime
             _decorationPoolHudId = int.MinValue;
         }
 
+        private static void PrepareHammerSearchCategory(Piece.PieceCategory category)
+        {
+            if (_hammerSearchCategory == category) return;
+
+            _hammerSearchCategory = category;
+            _hammerSearchText = string.Empty;
+            _hammerSearchQuery = string.Empty;
+            _hammerSearchHasFocus = false;
+            if (_hammerSearchInput != null)
+            {
+                _hammerSearchInput.DeactivateInputField();
+                _hammerSearchInput.SetTextWithoutNotify(string.Empty);
+            }
+        }
+
+        private static void EnsurePersistentHammerSearch(Hud hud, int hudInstanceId)
+        {
+            if (_persistentHammerSearch != null && _hammerSearchHudId == hudInstanceId)
+            {
+                if (_hammerSearchInput != null
+                    && !string.Equals(_hammerSearchInput.text, _hammerSearchText, StringComparison.Ordinal))
+                {
+                    _hammerSearchInput.SetTextWithoutNotify(_hammerSearchText);
+                }
+                _persistentHammerSearch.transform.SetAsLastSibling();
+                return;
+            }
+
+            DestroyPersistentHammerSearch();
+            var searchObject = new GameObject(
+                Prefix + "HammerSearch",
+                typeof(RectTransform),
+                typeof(Image),
+                typeof(TMP_InputField),
+                typeof(UITooltip));
+            searchObject.transform.SetParent(hud.m_pieceSelectionWindow.transform, false);
+            searchObject.transform.SetAsLastSibling();
+            var searchRect = (RectTransform)searchObject.transform;
+            searchRect.anchorMin = new Vector2(0f, 1f);
+            searchRect.anchorMax = new Vector2(0f, 1f);
+            searchRect.pivot = new Vector2(0f, 1f);
+            searchRect.anchoredPosition = new Vector2(
+                18f,
+                -(hud.m_pieceIconSpacing + 49f + ViewControlsHeight + 8f));
+            searchRect.sizeDelta = new Vector2(hud.m_pieceIconSpacing + 8f, HammerSearchHeight);
+
+            Image background = searchObject.GetComponent<Image>();
+            background.color = new Color(0.20f, 0.20f, 0.20f, 0.70f);
+            background.raycastTarget = true;
+            AddRectBorder(searchRect, new Color(0.68f, 0.50f, 0.25f, 0.68f));
+
+            UITooltip tooltip = searchObject.GetComponent<UITooltip>();
+            tooltip.m_text = "Search pieces. Middle-click a piece to add or remove a favorite.";
+
+            var viewportObject = new GameObject(
+                Prefix + "HammerSearchViewport",
+                typeof(RectTransform),
+                typeof(RectMask2D));
+            viewportObject.transform.SetParent(searchRect, false);
+            var viewport = (RectTransform)viewportObject.transform;
+            viewport.anchorMin = Vector2.zero;
+            viewport.anchorMax = Vector2.one;
+            viewport.offsetMin = new Vector2(6f, 2f);
+            viewport.offsetMax = new Vector2(-21f, -2f);
+
+            TextMeshProUGUI inputText = CreateHammerSearchText(
+                hud,
+                viewport,
+                Prefix + "HammerSearchText",
+                string.Empty,
+                new Color(0.92f, 0.90f, 0.84f, 1f));
+            TextMeshProUGUI placeholder = CreateHammerSearchText(
+                hud,
+                viewport,
+                Prefix + "HammerSearchPlaceholder",
+                "SEARCH",
+                new Color(0.66f, 0.63f, 0.57f, 1f));
+
+            TMP_InputField input = searchObject.GetComponent<TMP_InputField>();
+            input.targetGraphic = background;
+            input.textViewport = viewport;
+            input.textComponent = inputText;
+            input.placeholder = placeholder;
+            input.lineType = TMP_InputField.LineType.SingleLine;
+            input.contentType = TMP_InputField.ContentType.Standard;
+            input.characterLimit = 64;
+            input.caretColor = new Color(0.84f, 0.61f, 0.26f, 1f);
+            input.selectionColor = new Color(0.25f, 0.55f, 0.82f, 0.55f);
+            input.SetTextWithoutNotify(_hammerSearchText);
+            input.onSelect.AddListener(_ => _hammerSearchHasFocus = true);
+            input.onDeselect.AddListener(_ => _hammerSearchHasFocus = false);
+            input.onEndEdit.AddListener(_ => _hammerSearchHasFocus = false);
+            input.onValueChanged.AddListener(value =>
+            {
+                string nextValue = value ?? string.Empty;
+                if (string.Equals(_hammerSearchText, nextValue, StringComparison.Ordinal)) return;
+                _hammerSearchText = nextValue;
+                _hammerSearchQuery = HammerPieceSearch.Normalize(nextValue);
+                RefreshHammerList(hud);
+                _hammerSearchHasFocus = input != null && input.isFocused;
+            });
+
+            var clearObject = new GameObject(
+                Prefix + "HammerSearchClear",
+                typeof(RectTransform),
+                typeof(Image),
+                typeof(Button));
+            clearObject.transform.SetParent(searchRect, false);
+            var clearRect = (RectTransform)clearObject.transform;
+            clearRect.anchorMin = new Vector2(1f, 0f);
+            clearRect.anchorMax = new Vector2(1f, 1f);
+            clearRect.pivot = new Vector2(1f, 0.5f);
+            clearRect.anchoredPosition = Vector2.zero;
+            clearRect.sizeDelta = new Vector2(20f, 0f);
+            Image clearImage = clearObject.GetComponent<Image>();
+            clearImage.color = new Color(0f, 0f, 0f, 0.01f);
+            Button clearButton = clearObject.GetComponent<Button>();
+            clearButton.targetGraphic = clearImage;
+            clearButton.onClick.AddListener(() =>
+            {
+                if (string.IsNullOrEmpty(_hammerSearchText)) return;
+                _hammerSearchText = string.Empty;
+                _hammerSearchQuery = string.Empty;
+                input.SetTextWithoutNotify(string.Empty);
+                RefreshHammerList(hud);
+            });
+            TextMeshProUGUI clearLabel = CreateHammerSearchText(
+                hud,
+                clearRect,
+                Prefix + "HammerSearchClearLabel",
+                "×",
+                new Color(0.84f, 0.80f, 0.70f, 1f));
+            clearLabel.fontSize = 15f;
+            clearLabel.alignment = TextAlignmentOptions.Center;
+
+            _persistentHammerSearch = searchObject;
+            _hammerSearchInput = input;
+            _hammerSearchHudId = hudInstanceId;
+        }
+
+        private static TextMeshProUGUI CreateHammerSearchText(
+            Hud hud,
+            RectTransform parent,
+            string name,
+            string value,
+            Color color)
+        {
+            var textObject = new GameObject(name, typeof(RectTransform), typeof(TextMeshProUGUI));
+            textObject.transform.SetParent(parent, false);
+            var rect = (RectTransform)textObject.transform;
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+
+            TextMeshProUGUI text = textObject.GetComponent<TextMeshProUGUI>();
+            text.text = value;
+            text.font = hud.m_pieceDescription != null ? hud.m_pieceDescription.font : null;
+            text.fontSize = 10.5f;
+            text.fontStyle = FontStyles.Normal;
+            text.color = color;
+            text.alignment = TextAlignmentOptions.MidlineLeft;
+            text.textWrappingMode = TextWrappingModes.NoWrap;
+            text.overflowMode = TextOverflowModes.Ellipsis;
+            text.raycastTarget = false;
+            return text;
+        }
+
+        private static void UpdateHammerSearchVisibility(Piece.PieceCategory category)
+        {
+            if (_persistentHammerSearch == null) return;
+            bool visible = IsEnabled(category);
+            if (!visible && _hammerSearchInput != null)
+            {
+                _hammerSearchHasFocus = false;
+                _hammerSearchInput.DeactivateInputField();
+            }
+            _persistentHammerSearch.SetActive(visible);
+            if (visible) _persistentHammerSearch.transform.SetAsLastSibling();
+        }
+
+        private static void RefreshHammerList(Hud hud)
+        {
+            if (_refreshingHammerList) return;
+            Player? player = Player.m_localPlayer;
+            PieceTable? table = player == null
+                ? null
+                : PlayerBuildPiecesField.GetValue(player) as PieceTable;
+            if (player == null || table == null) return;
+
+            _refreshingHammerList = true;
+            try
+            {
+                List<Piece>? pieces = player.GetBuildPieces();
+                if (pieces == null) return;
+                Clear(hud);
+                Apply(hud, pieces, table.GetSelectedCategory());
+            }
+            catch (Exception exception)
+            {
+                Plugin.LogInstance.LogWarning($"Hammer search refresh failed: {exception}");
+            }
+            finally
+            {
+                _refreshingHammerList = false;
+            }
+        }
+
+        private static void SetHammerNoResultsVisible(Hud hud, bool visible)
+        {
+            if (!visible)
+            {
+                if (_hammerNoResults != null) _hammerNoResults.SetActive(false);
+                return;
+            }
+
+            if (_hammerNoResults == null)
+            {
+                _hammerNoResults = new GameObject(
+                    Prefix + "CraftingNoResults",
+                    typeof(RectTransform),
+                    typeof(TextMeshProUGUI));
+                _hammerNoResults.transform.SetParent(hud.m_pieceListRoot, false);
+            }
+
+            _hammerNoResults.SetActive(true);
+            _hammerNoResults.transform.SetAsLastSibling();
+            var rect = (RectTransform)_hammerNoResults.transform;
+            rect.anchorMin = new Vector2(0f, 1f);
+            rect.anchorMax = new Vector2(0f, 1f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = new Vector2(
+                (CategoryColumns + (GridWidth - CategoryColumns) * 0.5f) * hud.m_pieceIconSpacing,
+                -GridHeight * hud.m_pieceIconSpacing * 0.45f);
+            rect.sizeDelta = new Vector2((GridWidth - CategoryColumns) * hud.m_pieceIconSpacing, 42f);
+
+            TextMeshProUGUI text = _hammerNoResults.GetComponent<TextMeshProUGUI>();
+            text.text = "No matching unlocked pieces";
+            text.font = hud.m_pieceDescription != null ? hud.m_pieceDescription.font : null;
+            text.fontSize = 18f;
+            text.fontStyle = FontStyles.Bold;
+            text.color = new Color(0.90f, 0.79f, 0.61f, 1f);
+            text.alignment = TextAlignmentOptions.Center;
+            text.outlineWidth = 0.2f;
+            text.outlineColor = Color.black;
+            text.raycastTarget = false;
+        }
+
         private static void ConfigureNativePieceCells(
             IList icons,
+            IReadOnlyList<Piece> pieces,
             int occupiedCount,
             int[] slots,
             int repairIndex)
@@ -1282,6 +1701,8 @@ namespace InventoryUX.Runtime
                 if (!NativeBackgrounds.ContainsKey(id))
                 {
                     NativeBackgrounds[id] = new NativeBackgroundState(
+                        root,
+                        i == repairIndex || root.activeSelf,
                         background,
                         background.color,
                         background.raycastTarget,
@@ -1295,6 +1716,10 @@ namespace InventoryUX.Runtime
                     && i < slots.Length
                     && slots[i] >= 0
                     && i != repairIndex;
+                if (i < occupiedCount && i < slots.Length)
+                {
+                    root.SetActive(interactive);
+                }
                 Color transparent = background.color;
                 transparent.a = 0f;
                 background.color = transparent;
@@ -1302,11 +1727,17 @@ namespace InventoryUX.Runtime
                 if (input != null)
                 {
                     input.enabled = interactive;
-                    if (interactive && !HoverInputs.ContainsKey(input.GetInstanceID()))
+                    int inputId = input.GetInstanceID();
+                    if (interactive && !HoverInputs.ContainsKey(inputId))
                     {
                         input.m_onPointerEnter += OnPieceHoverEnter;
                         input.m_onPointerExit += OnPieceHoverExit;
-                        HoverInputs[input.GetInstanceID()] = input;
+                        input.m_onMiddleDown += OnFavoriteToggle;
+                        HoverInputs[inputId] = input;
+                    }
+                    if (interactive && i < pieces.Count)
+                    {
+                        FavoritePiecesByInput[inputId] = pieces[i];
                     }
                 }
             }
@@ -1320,6 +1751,21 @@ namespace InventoryUX.Runtime
             {
                 state.SetHovered(true);
             }
+        }
+
+        private static void OnFavoriteToggle(UIInputHandler input)
+        {
+            if (input == null
+                || !FavoritePiecesByInput.TryGetValue(input.GetInstanceID(), out Piece piece)
+                || piece == null)
+            {
+                return;
+            }
+
+            ModConfig.ToggleFavorite(HammerOrganizer.GetPieceKey(piece));
+            NotifyPiecesChanged(_appliedCategory);
+            Hud? hud = Hud.instance;
+            if (hud != null) RefreshHammerList(hud);
         }
 
         private static void OnPieceHoverExit(UIInputHandler input)
@@ -1340,8 +1786,10 @@ namespace InventoryUX.Runtime
                 if (input == null) continue;
                 input.m_onPointerEnter -= OnPieceHoverEnter;
                 input.m_onPointerExit -= OnPieceHoverExit;
+                input.m_onMiddleDown -= OnFavoriteToggle;
             }
             HoverInputs.Clear();
+            FavoritePiecesByInput.Clear();
 
             foreach (KeyValuePair<int, NativeBackgroundState> pair in NativeBackgrounds)
             {
@@ -1647,6 +2095,10 @@ namespace InventoryUX.Runtime
             {
                 DestroyPersistentViewControls();
             }
+            if (_persistentHammerSearch != null && _hammerSearchHudId != hudInstanceId)
+            {
+                DestroyPersistentHammerSearch();
+            }
         }
 
         private static void RemoveGeneratedWarmBackgrounds(Hud hud)
@@ -1701,6 +2153,39 @@ namespace InventoryUX.Runtime
             _defaultViewBackground = null;
             _modViewBackground = null;
             _viewControlsHudId = int.MinValue;
+        }
+
+        private static void DestroyPersistentHammerSearch()
+        {
+            _hammerSearchHasFocus = false;
+            if (_hammerSearchInput != null)
+            {
+                _hammerSearchInput.onValueChanged.RemoveAllListeners();
+                _hammerSearchInput.onSelect.RemoveAllListeners();
+                _hammerSearchInput.onDeselect.RemoveAllListeners();
+                _hammerSearchInput.onEndEdit.RemoveAllListeners();
+                _hammerSearchInput.DeactivateInputField();
+            }
+            if (_persistentHammerSearch != null)
+            {
+                Button[] buttons = _persistentHammerSearch.GetComponentsInChildren<Button>(true);
+                for (int i = 0; i < buttons.Length; i++) buttons[i].onClick.RemoveAllListeners();
+                _persistentHammerSearch.SetActive(false);
+                UnityEngine.Object.Destroy(_persistentHammerSearch);
+            }
+            if (_hammerNoResults != null)
+            {
+                _hammerNoResults.SetActive(false);
+                UnityEngine.Object.Destroy(_hammerNoResults);
+            }
+            _persistentHammerSearch = null;
+            _hammerSearchInput = null;
+            _hammerSearchHudId = int.MinValue;
+            _hammerSearchText = string.Empty;
+            _hammerSearchQuery = string.Empty;
+            _hammerSearchCategory = Piece.PieceCategory.Max;
+            _hammerNoResults = null;
+            _refreshingHammerList = false;
         }
 
         private static void AddOutline(Transform parent, float inset, Color color)
@@ -1761,10 +2246,11 @@ namespace InventoryUX.Runtime
             int occupiedCount)
         {
             int total = Math.Min(icons.Count, GridWidth * GridHeight);
-            var used = new bool[total];
+            int visualCapacity = GridWidth * Mathf.Max(GridHeight, layout.VisibleRows);
+            var used = new bool[visualCapacity];
             for (int i = 0; i < layout.Slots.Length && i < occupiedCount; i++)
             {
-                if (layout.Slots[i] >= 0 && layout.Slots[i] < total) used[layout.Slots[i]] = true;
+                if (layout.Slots[i] >= 0 && layout.Slots[i] < visualCapacity) used[layout.Slots[i]] = true;
             }
 
             int nextEmptySlot = 0;
@@ -1779,11 +2265,11 @@ namespace InventoryUX.Runtime
                 }
                 else
                 {
-                    while (nextEmptySlot < total && used[nextEmptySlot]) nextEmptySlot++;
-                    slot = nextEmptySlot < total ? nextEmptySlot++ : i;
+                    while (nextEmptySlot < visualCapacity && used[nextEmptySlot]) nextEmptySlot++;
+                    slot = nextEmptySlot < visualCapacity ? nextEmptySlot++ : i;
                 }
                 float xOffset = i < occupiedCount ? layout.XOffsets[i] : 0f;
-                PositionCraftingIcon(hud, GetIconGameObject(icons[i]!), slot, xOffset);
+                PositionCraftingIcon(hud, GetIconGameObject(icons[i]!), slot, xOffset, layout.VisibleRows);
             }
         }
 
@@ -1832,7 +2318,8 @@ namespace InventoryUX.Runtime
             Hud hud,
             GameObject iconRoot,
             int slot,
-            float xOffset)
+            float xOffset,
+            int visibleRows)
         {
             var rect = (RectTransform)iconRoot.transform;
             float spacing = hud.m_pieceIconSpacing;
@@ -1840,8 +2327,13 @@ namespace InventoryUX.Runtime
                 slot % GridWidth * spacing * CraftingColumnPitchScale
                     + CraftingContentShift(spacing)
                     + xOffset,
-                -(slot / GridWidth) * HammerGridDimensions.CraftingRowPitch(hud));
+                -(slot / GridWidth) * CraftingRowPitch(hud, visibleRows));
         }
+
+        private static float CraftingRowPitch(Hud hud, int visibleRows)
+            => visibleRows > GridHeight
+                ? hud.m_pieceIconSpacing
+                : HammerGridDimensions.CraftingRowPitch(hud);
 
         private static void PositionIcon(Hud hud, GameObject iconRoot, int slot, int width)
         {
@@ -1945,6 +2437,15 @@ namespace InventoryUX.Runtime
 
             try
             {
+                DestroyPersistentHammerSearch();
+            }
+            catch (Exception exception)
+            {
+                failure = failure == null ? exception : new AggregateException(failure, exception);
+            }
+
+            try
+            {
                 if (hud != null) RemoveGeneratedWarmBackgrounds(hud);
                 _cleanedGeneratedBackgroundHudId = int.MinValue;
             }
@@ -1955,7 +2456,7 @@ namespace InventoryUX.Runtime
 
             ResetState();
 
-            if (failure != null) throw new InvalidOperationException("Could not fully release CraftGuard Hammer UI.", failure);
+            if (failure != null) throw new InvalidOperationException("Could not fully release CraftIndex Hammer UI.", failure);
         }
 
         private static void RemoveDecorations(Hud hud, IList icons, bool destroy = false)
@@ -2184,7 +2685,7 @@ namespace InventoryUX.Runtime
                 int[] slots,
                 float[] xOffsets,
                 int repairIndex,
-                CraftingSection?[] rowSections,
+                string[] rowLabels,
                 int[] representatives,
                 List<SubgroupDivider> subgroupBreaks,
                 int visibleRows)
@@ -2192,7 +2693,7 @@ namespace InventoryUX.Runtime
                 Slots = slots;
                 XOffsets = xOffsets;
                 RepairIndex = repairIndex;
-                RowSections = rowSections;
+                RowLabels = rowLabels;
                 Representatives = representatives;
                 SubgroupBreaks = subgroupBreaks;
                 VisibleRows = visibleRows;
@@ -2201,7 +2702,7 @@ namespace InventoryUX.Runtime
             internal int[] Slots { get; }
             internal float[] XOffsets { get; }
             internal int RepairIndex { get; }
-            internal CraftingSection?[] RowSections { get; }
+            internal string[] RowLabels { get; }
             internal int[] Representatives { get; }
             internal List<SubgroupDivider> SubgroupBreaks { get; }
             internal int VisibleRows { get; }
@@ -2281,6 +2782,8 @@ namespace InventoryUX.Runtime
         private readonly struct NativeBackgroundState
         {
             internal NativeBackgroundState(
+                GameObject root,
+                bool active,
                 Image image,
                 Color color,
                 bool raycastTarget,
@@ -2289,6 +2792,8 @@ namespace InventoryUX.Runtime
                 UIInputHandler? input,
                 bool inputEnabled)
             {
+                Root = root;
+                Active = active;
                 Image = image;
                 Color = color;
                 RaycastTarget = raycastTarget;
@@ -2297,6 +2802,8 @@ namespace InventoryUX.Runtime
                 Input = input;
                 InputEnabled = inputEnabled;
             }
+            private GameObject Root { get; }
+            private bool Active { get; }
             private Image Image { get; }
             private Color Color { get; }
             private bool RaycastTarget { get; }
@@ -2315,6 +2822,7 @@ namespace InventoryUX.Runtime
 
             internal void Restore()
             {
+                if (Root != null) Root.SetActive(Active);
                 if (Image != null)
                 {
                     Image.color = Color;

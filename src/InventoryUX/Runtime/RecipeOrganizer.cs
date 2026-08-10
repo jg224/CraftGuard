@@ -327,7 +327,7 @@ namespace InventoryUX.Runtime
                 ResetTransientState();
             }
 
-            if (failure != null) throw new InvalidOperationException("Could not fully release CraftGuard recipe UI.", failure);
+            if (failure != null) throw new InvalidOperationException("Could not fully release CraftIndex recipe UI.", failure);
         }
 
         internal static void Shutdown()
@@ -767,7 +767,7 @@ namespace InventoryUX.Runtime
                 failure = failure == null ? exception : new AggregateException(failure, exception);
             }
 
-            if (failure != null) throw new InvalidOperationException("Could not fully destroy CraftGuard recipe controls.", failure);
+            if (failure != null) throw new InvalidOperationException("Could not fully destroy CraftIndex recipe controls.", failure);
         }
 
         private static void DestroyControlRoot(GameObject root)

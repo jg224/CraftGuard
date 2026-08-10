@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a CraftGuard crash, layout issue, or compatibility problem
+description: Report a CraftIndex crash, layout issue, or compatibility problem
 title: "[Bug]: "
 labels:
   - bug
@@ -10,8 +10,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: CraftGuard version
-      placeholder: 0.1.0
+      label: CraftIndex version
+      placeholder: 0.3.0
     validations:
       required: true
   - type: input

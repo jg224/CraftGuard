@@ -3,10 +3,10 @@ schemaVersion = "0.0.1"
 
 [package]
 namespace = "jg224"
-name = "CraftGuard"
-versionNumber = "0.2.6"
+name = "CraftIndex"
+versionNumber = "0.3.0"
 description = "Organizes Valheim's Hammer and crafting-station menus."
-websiteUrl = "https://github.com/jg224/CraftGuard"
+websiteUrl = "https://github.com/jg224/CraftIndex"
 containsNsfwContent = false
 
 [package.dependencies]
@@ -18,8 +18,8 @@ readme = "./thunderstore/README.md"
 outdir = "./dist/thunderstore"
 
 [[build.copy]]
-source = "./src/InventoryUX/bin/Release/net472/CraftGuard.dll"
-target = "CraftGuard.dll"
+source = "./src/InventoryUX/bin/Release/net472/CraftIndex.dll"
+target = "CraftIndex.dll"
 
 [[build.copy]]
 source = "./LICENSE"

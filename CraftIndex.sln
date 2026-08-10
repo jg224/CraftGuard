@@ -2,7 +2,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CraftGuard", "src\InventoryUX\InventoryUX.csproj", "{A304416E-E146-4B74-93F3-DAF5D18FC27C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CraftIndex", "src\InventoryUX\InventoryUX.csproj", "{A304416E-E146-4B74-93F3-DAF5D18FC27C}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "InventoryUX.CoreTests", "tests\InventoryUX.CoreTests\InventoryUX.CoreTests.csproj", "{2C32CC85-5C04-4A7F-A41A-3C87F170415F}"
 EndProject

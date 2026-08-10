@@ -10,10 +10,10 @@ namespace InventoryUX
     public sealed class Plugin : BaseUnityPlugin
     {
         // Retain the original GUID so existing users keep their BepInEx settings
-        // and an old InventoryUX DLL cannot load beside CraftGuard by accident.
+        // and an old InventoryUX DLL cannot load beside CraftIndex by accident.
         internal const string PluginGuid = "com.inventoryux.valheim";
-        internal const string PluginName = "CraftGuard";
-        internal const string PluginVersion = "0.2.6";
+        internal const string PluginName = "CraftIndex";
+        internal const string PluginVersion = "0.3.0";
 
         internal static ManualLogSource LogInstance { get; private set; } = null!;
         internal static Plugin Instance { get; private set; } = null!;
@@ -49,7 +49,7 @@ namespace InventoryUX
             }
             catch (Exception exception)
             {
-                LogInstance.LogWarning($"CraftGuard could not fully release {name} during shutdown: {exception}");
+                LogInstance.LogWarning($"CraftIndex could not fully release {name} during shutdown: {exception}");
             }
         }
     }

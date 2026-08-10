@@ -7,9 +7,9 @@ namespace InventoryUX.Patches
     internal static class HammerPatchHealth
     {
         internal static readonly FailureCircuitBreaker Organization =
-            new FailureCircuitBreaker("CraftGuard Hammer sorting");
+            new FailureCircuitBreaker("CraftIndex Hammer sorting");
         internal static readonly FailureCircuitBreaker Decoration =
-            new FailureCircuitBreaker("CraftGuard Hammer layout");
+            new FailureCircuitBreaker("CraftIndex Hammer layout");
 
         internal static void Release(Hud hud)
         {

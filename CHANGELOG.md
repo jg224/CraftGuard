@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 - 2026-08-09
+
+- Renames the mod from CraftGuard to CraftIndex while retaining the existing plugin identifier and settings file.
+- Adds cached search to every organized Hammer tab.
+- Adds persistent middle-click favorites in a dedicated section pinned to the top of each organized Hammer tab.
+- Adds a clear no-results message when a Hammer search has no unlocked matches.
+- Adds optional PlantEverything support that groups its documented custom plants in a separate `Custom Plants` section.
+
 ## 0.2.6 - 2026-08-09
 
 - Adds a dedicated Bait section at the bottom of food-station Stat views.
