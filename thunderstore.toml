@@ -4,7 +4,7 @@ schemaVersion = "0.0.1"
 [package]
 namespace = "jg224"
 name = "CraftGuard"
-versionNumber = "0.2.5"
+versionNumber = "0.2.6"
 description = "Organizes Valheim's Hammer and crafting-station menus."
 websiteUrl = "https://github.com/jg224/CraftGuard"
 containsNsfwContent = false

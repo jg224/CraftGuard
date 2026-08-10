@@ -31,6 +31,11 @@ namespace InventoryUX.Core
                 return BiomeClassifier.ToGroup(BiomeClassifier.Classify(facts.Id, facts.IngredientIds));
             }
 
+            if (IsFishingBait(facts))
+            {
+                return new RecipeGroup("Bait", 5);
+            }
+
             return facts.IsFood
                 ? FoodClassifier.ToGroup(FoodClassifier.Classify(facts.Health, facts.Stamina, facts.Eitr))
                 : new RecipeGroup("Other", 4);
@@ -38,6 +43,11 @@ namespace InventoryUX.Core
 
         internal static RecipeGroup GetFoodPrepGroup(RecipeFacts facts, FoodGroupingMode mode)
         {
+            if (mode == FoodGroupingMode.Stat && IsFishingBait(facts))
+            {
+                return new RecipeGroup("Bait", 5);
+            }
+
             if (mode == FoodGroupingMode.Stat && (facts.IsFeast || !facts.IsFood))
             {
                 return new RecipeGroup("Feasts", 4);
@@ -83,6 +93,10 @@ namespace InventoryUX.Core
 
             return new RecipeGroup("Other", 60);
         }
+
+        private static bool IsFishingBait(RecipeFacts facts)
+            => facts.Id.IndexOf("bait", StringComparison.OrdinalIgnoreCase) >= 0
+                || facts.DisplayName.IndexOf("bait", StringComparison.CurrentCultureIgnoreCase) >= 0;
 
         private static RecipeGroup WeaponGroup(string skill)
         {
