@@ -13,6 +13,7 @@ namespace InventoryUX.Runtime
         internal static ConfigEntry<bool> ShowHammerPieceNames { get; private set; } = null!;
         internal static ConfigEntry<string> HammerToolViews { get; private set; } = null!;
         internal static ConfigEntry<string> FavoritePieces { get; private set; } = null!;
+        internal static ConfigEntry<string> FavoriteRecipes { get; private set; } = null!;
         internal static ConfigEntry<bool> OrganizeCrafting { get; private set; } = null!;
         internal static ConfigEntry<bool> OrganizeBuilding { get; private set; } = null!;
         internal static ConfigEntry<bool> OrganizeHeavyBuilding { get; private set; } = null!;
@@ -23,6 +24,8 @@ namespace InventoryUX.Runtime
         internal static ConfigEntry<bool> WriteDataInventoryOnStartup { get; private set; } = null!;
         private static string _favoriteCacheSource = string.Empty;
         private static HashSet<string> _favoriteCache = new HashSet<string>(System.StringComparer.Ordinal);
+        private static string _favoriteRecipeCacheSource = string.Empty;
+        private static HashSet<string> _favoriteRecipeCache = new HashSet<string>(System.StringComparer.Ordinal);
 
         internal static EquipmentGroupingMode EquipmentMode
         {
@@ -81,6 +84,11 @@ namespace InventoryUX.Runtime
             OrganizeFurniture = config.Bind("Hammer", "OrganizeFurniture", true, "Group furniture by function.");
 
             OrganizeRecipes = config.Bind("CraftingUI", "OrganizeRecipes", true, "Enable crafting-station views and search without changing recipes or craftability.");
+            FavoriteRecipes = config.Bind(
+                "CraftingUI",
+                "FavoriteRecipes",
+                string.Empty,
+                "Semicolon-separated recipe identifiers pinned to CraftIndex's Favorites section. Use the star on a recipe row to toggle it.");
             WorkbenchGrouping = config.Bind("CraftingUI", "WorkbenchGrouping", "Default", "Remembered equipment-station view: Default, Type, or Biome.");
             FoodGrouping = config.Bind("CraftingUI", "FoodGrouping", "Default", "Remembered food-station view: Default, Stat, or Biome.");
 
@@ -123,10 +131,25 @@ namespace InventoryUX.Runtime
         internal static bool ToggleFavorite(string pieceKey)
         {
             FavoritePieces.Value = FavoritePiecePreferences.Toggle(FavoritePieces.Value, pieceKey);
-            _favoriteCacheSource = string.Empty;
+            _favoriteCacheSource = "\0";
             EnsureFavoriteCache();
             File.Save();
             return _favoriteCache.Contains(HammerPieceSearch.Normalize(pieceKey));
+        }
+
+        internal static bool IsFavoriteRecipe(string recipeKey)
+        {
+            EnsureFavoriteRecipeCache();
+            return _favoriteRecipeCache.Contains(HammerPieceSearch.Normalize(recipeKey));
+        }
+
+        internal static bool ToggleFavoriteRecipe(string recipeKey)
+        {
+            FavoriteRecipes.Value = FavoritePiecePreferences.Toggle(FavoriteRecipes.Value, recipeKey);
+            _favoriteRecipeCacheSource = "\0";
+            EnsureFavoriteRecipeCache();
+            File.Save();
+            return _favoriteRecipeCache.Contains(HammerPieceSearch.Normalize(recipeKey));
         }
 
         private static void EnsureFavoriteCache()
@@ -135,6 +158,14 @@ namespace InventoryUX.Runtime
             if (string.Equals(source, _favoriteCacheSource, System.StringComparison.Ordinal)) return;
             _favoriteCache = FavoritePiecePreferences.Parse(source);
             _favoriteCacheSource = source;
+        }
+
+        private static void EnsureFavoriteRecipeCache()
+        {
+            string source = FavoriteRecipes.Value ?? string.Empty;
+            if (string.Equals(source, _favoriteRecipeCacheSource, System.StringComparison.Ordinal)) return;
+            _favoriteRecipeCache = FavoritePiecePreferences.Parse(source);
+            _favoriteRecipeCacheSource = source;
         }
 
     }

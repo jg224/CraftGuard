@@ -21,6 +21,8 @@ namespace InventoryUX.Runtime
         private const float HeaderHeight = 22f;
         private const float ModeButtonWidth = 70f;
         private const float ModeButtonGap = 3f;
+        private const float RecipeListWidthScale = 1.20f;
+        private const float RecipeNameRightPadding = 5f;
 
         private static readonly Color Gold = new Color(0.83f, 0.62f, 0.25f, 1f);
         private static readonly Color ActiveBlue = new Color(0.24f, 0.55f, 0.78f, 0.95f);
@@ -58,6 +60,9 @@ namespace InventoryUX.Runtime
         private static readonly List<Image> ContentLinePool = new List<Image>();
         private static int _usedContentTexts;
         private static int _usedContentLines;
+        private static RecipePanelLayoutState? _recipePanelLayout;
+        private static readonly Dictionary<int, RecipeRowLayoutState> RecipeRowLayouts =
+            new Dictionary<int, RecipeRowLayoutState>();
 
         // Input patches run many times per frame. Event handlers keep this flag
         // authoritative so those patches never need to query Unity hierarchy state.
@@ -75,10 +80,14 @@ namespace InventoryUX.Runtime
             CraftingStation? station = player != null ? player.GetCurrentCraftingStation() : null;
             if (!gui.InCraftTab() || station == null)
             {
+                RemoveRecipeFavoriteButtons(gui.m_recipeListRoot);
                 HideFixedControls(gui);
+                RestoreRecipeRowLayouts();
+                RestoreRecipePanelLayout(gui);
                 return;
             }
 
+            EnsureRecipePanelLayout(gui);
             PrepareStationSearch(station);
             FoodStationKind foodStationKind = GetFoodStationKind(station);
             bool resolveFoodStats = GuessContextFromStation(station) == StationRecipeContext.Food;
@@ -88,6 +97,7 @@ namespace InventoryUX.Runtime
             {
                 StationRecipeContext emptyContext = GuessContextFromStation(station);
                 EnsureFixedControls(gui, emptyContext);
+                CenterNativeRecipeTabs(gui);
                 SetFixedControlsVisible(true);
                 UpdateModeAppearance();
                 CacheRecipeViews(gui, new List<RecipePairView>(), emptyContext, foodStationKind);
@@ -106,7 +116,10 @@ namespace InventoryUX.Runtime
                 {
                     // Never drop an unusual modded entry. If a row does not use
                     // the native shape, leave the complete vanilla list alone.
+                    RemoveRecipeFavoriteButtons(gui.m_recipeListRoot);
                     HideFixedControls(gui);
+                    RestoreRecipeRowLayouts();
+                    RestoreRecipePanelLayout(gui);
                     return;
                 }
 
@@ -129,6 +142,7 @@ namespace InventoryUX.Runtime
                 }
             }
             EnsureFixedControls(gui, context);
+            CenterNativeRecipeTabs(gui);
             SetFixedControlsVisible(true);
             UpdateModeAppearance();
 
@@ -138,6 +152,8 @@ namespace InventoryUX.Runtime
 
         internal static void PrepareForVanillaRecipeRefresh(InventoryGui gui)
         {
+            RestoreRecipeRowLayouts();
+            RemoveRecipeFavoriteButtons(gui.m_recipeListRoot);
             RestoreCachedRecipeList(gui);
         }
 
@@ -211,6 +227,14 @@ namespace InventoryUX.Runtime
 
             var ordered = new List<RecipePairView>(allViews);
             bool grouped = IsGrouped(context);
+            bool hasFavorites = false;
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                RecipePairView view = ordered[i];
+                view.IsFavorite = ModConfig.IsFavoriteRecipe(GetRecipeKey(view.Recipe));
+                view.Group = new RecipeGroup("All Recipes", 0);
+                if (view.IsFavorite) hasFavorites = true;
+            }
             if (grouped && context == StationRecipeContext.Food)
             {
                 FoodGroupingMode mode = ModConfig.FoodMode;
@@ -253,7 +277,22 @@ namespace InventoryUX.Runtime
                 }
             }
 
-            if (grouped) ordered.Sort(CompareViews);
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                if (ordered[i].IsFavorite)
+                {
+                    ordered[i].Group = new RecipeGroup("Favorites", int.MinValue);
+                }
+            }
+
+            if (grouped)
+            {
+                ordered.Sort(CompareViews);
+            }
+            else if (hasFavorites)
+            {
+                ordered.Sort(CompareDefaultViews);
+            }
             _orderedRecipeViews = ordered;
             _cachedOrderingKey = orderingKey;
             return ordered;
@@ -274,13 +313,16 @@ namespace InventoryUX.Runtime
 
         internal static void Cleanup(InventoryGui gui)
         {
+            RestoreRecipeRowLayouts();
             if (gui.m_recipeListRoot != null)
             {
                 RestoreCachedRecipeList(gui);
                 ClearContentDecorations(gui.m_recipeListRoot);
+                RemoveRecipeFavoriteButtons(gui.m_recipeListRoot);
             }
 
             HideFixedControls(gui);
+            RestoreRecipePanelLayout(gui);
         }
 
         internal static void Release(InventoryGui gui)
@@ -288,10 +330,12 @@ namespace InventoryUX.Runtime
             Exception? failure = null;
             try
             {
+                RestoreRecipeRowLayouts();
                 if (gui != null && gui.m_recipeListRoot != null)
                 {
                     RestoreCachedRecipeList(gui);
                     ClearContentDecorations(gui.m_recipeListRoot);
+                    RemoveRecipeFavoriteButtons(gui.m_recipeListRoot);
                 }
             }
             catch (Exception exception)
@@ -322,6 +366,15 @@ namespace InventoryUX.Runtime
             {
                 failure = failure == null ? exception : new AggregateException(failure, exception);
             }
+
+            try
+            {
+                RestoreRecipePanelLayout(gui);
+            }
+            catch (Exception exception)
+            {
+                failure = failure == null ? exception : new AggregateException(failure, exception);
+            }
             finally
             {
                 ResetTransientState();
@@ -332,10 +385,17 @@ namespace InventoryUX.Runtime
 
         internal static void Shutdown()
         {
+            InventoryGui? owner = _cachedRecipeOwner;
             try
             {
+                RestoreRecipeRowLayouts();
+                if (_cachedRecipeOwner != null && _cachedRecipeOwner.m_recipeListRoot != null)
+                {
+                    RemoveRecipeFavoriteButtons(_cachedRecipeOwner.m_recipeListRoot);
+                }
                 DestroyFixedControls();
                 DestroyContentPool();
+                RestoreRecipePanelLayout(owner);
             }
             finally
             {
@@ -418,6 +478,12 @@ namespace InventoryUX.Runtime
             return comparison != 0 ? comparison : left.Facts.OriginalIndex.CompareTo(right.Facts.OriginalIndex);
         }
 
+        private static int CompareDefaultViews(RecipePairView left, RecipePairView right)
+        {
+            if (left.IsFavorite != right.IsFavorite) return left.IsFavorite ? -1 : 1;
+            return left.Facts.OriginalIndex.CompareTo(right.Facts.OriginalIndex);
+        }
+
         private static void Render(
             InventoryGui gui,
             IReadOnlyList<RecipePairView> views,
@@ -428,6 +494,15 @@ namespace InventoryUX.Runtime
             RectTransform root = gui.m_recipeListRoot;
             float cursor = ContentTopPadding;
             string? previousGroup = null;
+            bool showFavoriteSections = false;
+            for (int i = 0; i < views.Count; i++)
+            {
+                if (views[i].IsFavorite)
+                {
+                    showFavoriteSections = true;
+                    break;
+                }
+            }
 
             if (views.Count == 0 && !string.IsNullOrWhiteSpace(_searchText))
             {
@@ -438,22 +513,28 @@ namespace InventoryUX.Runtime
             for (int i = 0; i < views.Count; i++)
             {
                 RecipePairView view = views[i];
-                if (grouped && !string.Equals(previousGroup, view.Group.Label, StringComparison.Ordinal))
+                string sectionLabel = view.IsFavorite
+                    ? "Favorites"
+                    : grouped ? view.Group.Label : "All Recipes";
+                if ((grouped || showFavoriteSections)
+                    && !string.Equals(previousGroup, sectionLabel, StringComparison.Ordinal))
                 {
-                    CreateHeader(gui, root, view.Group.Label, cursor);
+                    CreateHeader(gui, root, sectionLabel, cursor);
                     cursor += HeaderHeight;
-                    previousGroup = view.Group.Label;
+                    previousGroup = sectionLabel;
                 }
 
                 RectTransform elementRect = (RectTransform)view.Element.transform;
                 elementRect.anchoredPosition = new Vector2(0f, -cursor);
+                float rowHeight = ConfigureRecipeRowLayout(gui, view);
                 if (context == StationRecipeContext.Food
                     && foodStationKind != FoodStationKind.Mead
                     && (view.Facts.IsFood || view.Facts.IsFeast))
                 {
                     AddMealStats(gui, view);
                 }
-                cursor += gui.m_recipeListSpace;
+                AddRecipeFavoriteButton(gui, view);
+                cursor += rowHeight;
             }
 
             float baseSize = (float)RecipeListBaseSizeField.GetValue(gui);
@@ -508,7 +589,9 @@ namespace InventoryUX.Runtime
             root.pivot = new Vector2(0f, upgradeRect.pivot.y);
             root.sizeDelta = new Vector2(ModeButtonWidth * 3f + ModeButtonGap * 2f, Mathf.Max(25f, upgradeHeight));
             root.rotation = upgradeRect.rotation;
-            root.position = upgradeRect.TransformPoint(new Vector3(upgradeRect.rect.xMax + 5f, 0f, 0f));
+            root.position = _recipePanelLayout != null
+                ? _recipePanelLayout.ModeRootWorldPosition
+                : upgradeRect.TransformPoint(new Vector3(upgradeRect.rect.xMax + 5f, 0f, 0f));
 
             string primaryCaption = context == StationRecipeContext.Food ? "STAT" : "TYPE";
             buttons = new[]
@@ -827,6 +910,177 @@ namespace InventoryUX.Runtime
             }
         }
 
+        private static void EnsureRecipePanelLayout(InventoryGui gui)
+        {
+            if (_recipePanelLayout != null
+                && ReferenceEquals(_recipePanelLayout.Owner, gui)
+                && _recipePanelLayout.CraftingRoot != null)
+            {
+                return;
+            }
+
+            RestoreRecipePanelLayout(null);
+            if (gui == null || gui.m_crafting == null || gui.m_recipeListRoot == null) return;
+            RectTransform? viewport = gui.m_recipeListRoot.parent as RectTransform;
+            if (viewport == null) return;
+            RectTransform listContainer = viewport.parent as RectTransform ?? viewport;
+            if (listContainer == gui.m_crafting) listContainer = viewport;
+            float listWidth = listContainer.rect.width;
+            if (listWidth <= 1f) listWidth = Mathf.Abs(listContainer.sizeDelta.x);
+            if (listWidth <= 1f) return;
+
+            float widthIncrease = listWidth * (RecipeListWidthScale - 1f);
+            var detailRoots = CollectDetailRoots(gui, listContainer);
+            if (detailRoots.Count == 0) return;
+            _recipePanelLayout = new RecipePanelLayoutState(
+                gui,
+                gui.m_crafting,
+                listContainer,
+                viewport,
+                gui.m_recipeListRoot,
+                detailRoots);
+
+            float craftingWidth = gui.m_crafting.rect.width;
+            if (craftingWidth <= 1f) craftingWidth = Mathf.Abs(gui.m_crafting.sizeDelta.x);
+            if (craftingWidth > 1f)
+            {
+                SetWidthKeepingLeft(gui.m_crafting, craftingWidth + widthIncrease);
+            }
+            SetWidthKeepingLeft(listContainer, listWidth + widthIncrease);
+            float viewportWidth = viewport.rect.width;
+            if (viewportWidth <= 1f) viewportWidth = Mathf.Abs(viewport.sizeDelta.x);
+            if (viewportWidth > 1f)
+            {
+                SetWidthKeepingLeft(viewport, viewportWidth + widthIncrease);
+            }
+            float contentWidth = gui.m_recipeListRoot.rect.width;
+            if (contentWidth <= 1f) contentWidth = Mathf.Abs(gui.m_recipeListRoot.sizeDelta.x);
+            if (contentWidth > 1f)
+            {
+                SetWidthKeepingLeft(gui.m_recipeListRoot, contentWidth + widthIncrease);
+            }
+            Vector3 worldShift = gui.m_crafting.TransformVector(new Vector3(widthIncrease, 0f, 0f));
+            for (int i = 0; i < _recipePanelLayout.DetailRoots.Count; i++)
+            {
+                ShiftedRectState shifted = _recipePanelLayout.DetailRoots[i];
+                if (shifted.Rect != null) shifted.Rect.position = shifted.WorldPosition + worldShift;
+            }
+            Canvas.ForceUpdateCanvases();
+        }
+
+        private static void CenterNativeRecipeTabs(InventoryGui gui)
+        {
+            if (_recipePanelLayout == null || _recipePanelLayout.TabsCentered
+                || gui.m_tabCraft == null || gui.m_tabUpgrade == null
+                || gui.m_recipeListRoot == null)
+            {
+                return;
+            }
+
+            RectTransform? viewport = gui.m_recipeListRoot.parent as RectTransform;
+            RectTransform? craft = gui.m_tabCraft.transform as RectTransform;
+            RectTransform? upgrade = gui.m_tabUpgrade.transform as RectTransform;
+            if (viewport == null || craft == null || upgrade == null) return;
+
+            var corners = new Vector3[4];
+            viewport.GetWorldCorners(corners);
+            Vector3 targetCenter = (corners[1] + corners[2]) * 0.5f;
+            craft.GetWorldCorners(corners);
+            Vector3 groupLeft = (corners[0] + corners[1]) * 0.5f;
+            upgrade.GetWorldCorners(corners);
+            Vector3 groupRight = (corners[2] + corners[3]) * 0.5f;
+            Vector3 groupCenter = (groupLeft + groupRight) * 0.5f;
+
+            RectTransform? parent = craft.parent as RectTransform;
+            if (parent == null || upgrade.parent != parent) return;
+            Vector3 localDelta = parent.InverseTransformVector(targetCenter - groupCenter);
+            localDelta.y = 0f;
+            localDelta.z = 0f;
+            Vector3 worldDelta = parent.TransformVector(localDelta);
+            craft.position += worldDelta;
+            upgrade.position += worldDelta;
+            _recipePanelLayout.TabsCentered = true;
+        }
+
+        private static List<RectTransform> CollectDetailRoots(InventoryGui gui, RectTransform listContainer)
+        {
+            var roots = new HashSet<RectTransform>();
+            AddDetailRoot(roots, gui, listContainer, gui.m_recipeName != null ? gui.m_recipeName.transform : null);
+            AddDetailRoot(roots, gui, listContainer, gui.m_recipeDecription != null ? gui.m_recipeDecription.transform : null);
+            AddDetailRoot(roots, gui, listContainer, gui.m_recipeIcon != null ? gui.m_recipeIcon.transform : null);
+            AddDetailRoot(roots, gui, listContainer, gui.m_variantButton != null ? gui.m_variantButton.transform : null);
+            AddDetailRoot(roots, gui, listContainer, gui.m_craftButton != null ? gui.m_craftButton.transform : null);
+            AddDetailRoot(roots, gui, listContainer, gui.m_craftCancelButton != null ? gui.m_craftCancelButton.transform : null);
+            AddDetailRoot(roots, gui, listContainer, gui.m_craftProgressPanel);
+            AddDetailRoot(roots, gui, listContainer, gui.m_qualityPanel);
+            AddDetailRoot(roots, gui, listContainer, gui.m_itemCraftType != null ? gui.m_itemCraftType.transform : null);
+            AddDetailRoot(roots, gui, listContainer, gui.m_minStationLevelIcon != null ? gui.m_minStationLevelIcon.transform : null);
+            AddDetailRoot(roots, gui, listContainer, gui.m_minStationLevelText != null ? gui.m_minStationLevelText.transform : null);
+            AddDetailRoot(roots, gui, listContainer, gui.m_upgradeItemIcon != null ? gui.m_upgradeItemIcon.transform : null);
+            AddDetailRoot(roots, gui, listContainer, gui.m_upgradeItemDurability != null ? gui.m_upgradeItemDurability.transform : null);
+            AddDetailRoot(roots, gui, listContainer, gui.m_upgradeItemName != null ? gui.m_upgradeItemName.transform : null);
+            AddDetailRoot(roots, gui, listContainer, gui.m_upgradeItemQuality != null ? gui.m_upgradeItemQuality.transform : null);
+            AddDetailRoot(roots, gui, listContainer, gui.m_upgradeItemQualityArrow != null ? gui.m_upgradeItemQualityArrow.transform : null);
+            AddDetailRoot(roots, gui, listContainer, gui.m_upgradeItemNextQuality != null ? gui.m_upgradeItemNextQuality.transform : null);
+            AddDetailRoot(roots, gui, listContainer, gui.m_upgradeItemIndex != null ? gui.m_upgradeItemIndex.transform : null);
+            if (gui.m_recipeRequirementList != null)
+            {
+                for (int i = 0; i < gui.m_recipeRequirementList.Length; i++)
+                {
+                    GameObject requirement = gui.m_recipeRequirementList[i];
+                    AddDetailRoot(roots, gui, listContainer, requirement != null ? requirement.transform : null);
+                }
+            }
+            return new List<RectTransform>(roots);
+        }
+
+        private static void AddDetailRoot(
+            HashSet<RectTransform> roots,
+            InventoryGui gui,
+            RectTransform listContainer,
+            Transform? candidate)
+        {
+            if (candidate == null) return;
+            Transform current = candidate;
+            while (current.parent != null && current.parent != gui.m_crafting)
+            {
+                current = current.parent;
+            }
+            if (current.parent != gui.m_crafting || !(current is RectTransform rect)) return;
+            if (rect == listContainer || rect.IsChildOf(listContainer)) return;
+            roots.Add(rect);
+        }
+
+        private static void SetWidthKeepingLeft(RectTransform rect, float width)
+        {
+            if (rect == null || width <= 1f) return;
+            var corners = new Vector3[4];
+            rect.GetWorldCorners(corners);
+            Vector3 oldLeft = (corners[0] + corners[1]) * 0.5f;
+            rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, width);
+            rect.GetWorldCorners(corners);
+            Vector3 newLeft = (corners[0] + corners[1]) * 0.5f;
+            rect.position += oldLeft - newLeft;
+        }
+
+        private static void RestoreRecipePanelLayout(InventoryGui? gui)
+        {
+            if (_recipePanelLayout == null) return;
+            RecipePanelLayoutState state = _recipePanelLayout;
+            _recipePanelLayout = null;
+            state.Restore();
+            Canvas.ForceUpdateCanvases();
+        }
+
+        private static void RestoreRecipeRowLayouts()
+        {
+            foreach (RecipeRowLayoutState state in RecipeRowLayouts.Values)
+            {
+                state.Restore();
+            }
+            RecipeRowLayouts.Clear();
+        }
+
         private static void ApplyVanillaButtonSprite(InventoryGui gui, Image image)
         {
             Image? vanillaImage = gui.m_tabCraft != null ? gui.m_tabCraft.GetComponent<Image>() : null;
@@ -863,6 +1117,99 @@ namespace InventoryUX.Runtime
             RectTransform rect = (RectTransform)text.transform;
             rect.anchorMax = new Vector2(1f, 1f);
             rect.sizeDelta = new Vector2(-8f, HeaderHeight);
+        }
+
+        private static float ConfigureRecipeRowLayout(InventoryGui gui, RecipePairView view)
+        {
+            RectTransform elementRect = (RectTransform)view.Element.transform;
+            Transform? nameTransform = view.Element.transform.Find("name");
+            if (!(nameTransform is RectTransform nameRect)) return gui.m_recipeListSpace;
+
+            TMP_Text name = nameTransform.GetComponent<TMP_Text>();
+            if (name == null) return gui.m_recipeListSpace;
+
+            int elementId = view.Element.GetInstanceID();
+            if (!RecipeRowLayouts.TryGetValue(elementId, out RecipeRowLayoutState? state))
+            {
+                state = new RecipeRowLayoutState(elementRect, nameRect, name);
+                RecipeRowLayouts[elementId] = state;
+            }
+
+            RectTransform? viewport = gui.m_recipeListRoot.parent as RectTransform;
+            float targetWidth = viewport != null ? viewport.rect.width : gui.m_recipeListRoot.rect.width;
+            if (targetWidth > 1f)
+            {
+                elementRect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, targetWidth);
+            }
+
+            var nameCorners = new Vector3[4];
+            nameRect.GetWorldCorners(nameCorners);
+            float nameLeft = elementRect.InverseTransformPoint(nameCorners[0]).x - elementRect.rect.xMin;
+            if (nameLeft < 1f || nameLeft >= elementRect.rect.width - 10f) nameLeft = 42f;
+
+            Vector2 anchorMin = nameRect.anchorMin;
+            Vector2 anchorMax = nameRect.anchorMax;
+            anchorMin.x = 0f;
+            anchorMax.x = 1f;
+            nameRect.anchorMin = anchorMin;
+            nameRect.anchorMax = anchorMax;
+            Vector2 offsetMin = nameRect.offsetMin;
+            Vector2 offsetMax = nameRect.offsetMax;
+            offsetMin.x = nameLeft;
+            offsetMax.x = -RecipeNameRightPadding;
+            nameRect.offsetMin = offsetMin;
+            nameRect.offsetMax = offsetMax;
+
+            name.textWrappingMode = TextWrappingModes.NoWrap;
+            name.overflowMode = TextOverflowModes.Ellipsis;
+            name.ForceMeshUpdate();
+            float availableWidth = Mathf.Max(20f, nameRect.rect.width - 2f);
+            float preferredWidth = name.GetPreferredValues(name.text).x;
+            bool wrap = preferredWidth > availableWidth;
+            float rowHeight = gui.m_recipeListSpace;
+            view.NameWrapped = wrap;
+            view.RequiredNameHeight = state.NameHeight;
+            if (wrap)
+            {
+                name.textWrappingMode = TextWrappingModes.Normal;
+                name.overflowMode = TextOverflowModes.Overflow;
+                float preferredHeight = name.GetPreferredValues(name.text, availableWidth, 1000f).y;
+                float baseline = view.Facts.IsFood || view.Facts.IsFeast
+                    ? Mathf.Min(18f, state.NameHeight)
+                    : state.NameHeight;
+                float extraHeight = Mathf.Max(0f, preferredHeight - baseline);
+                view.RequiredNameHeight = Mathf.Max(state.NameHeight, preferredHeight + 1f);
+                rowHeight += extraHeight;
+                elementRect.SetSizeWithCurrentAnchors(
+                    RectTransform.Axis.Vertical,
+                    Mathf.Max(state.ElementHeight, rowHeight));
+                nameRect.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, view.RequiredNameHeight);
+            }
+
+            UITooltip? tooltip = nameTransform.GetComponent<UITooltip>();
+            if (tooltip == null)
+            {
+                tooltip = nameTransform.gameObject.AddComponent<UITooltip>();
+                state.AddedTooltip = tooltip;
+            }
+            else if (!state.CapturedTooltip)
+            {
+                state.CapturedTooltip = true;
+                state.TooltipText = tooltip.m_text;
+            }
+            tooltip.m_text = FullRecipeName(view);
+            name.raycastTarget = true;
+            return rowHeight;
+        }
+
+        private static string FullRecipeName(RecipePairView view)
+        {
+            string value = view.Facts.DisplayName;
+            if (view.Recipe != null && view.Recipe.m_amount > 1)
+            {
+                value += " x" + view.Recipe.m_amount;
+            }
+            return value;
         }
 
         private static void AddMealStats(InventoryGui gui, RecipePairView view)
@@ -912,6 +1259,15 @@ namespace InventoryUX.Runtime
                 stats.outlineColor = new Color32(25, 15, 10, 230);
             }
 
+            if (view.NameWrapped
+                && row.Find("name") is RectTransform wrappedName
+                && RecipeRowLayouts.TryGetValue(view.Element.GetInstanceID(), out RecipeRowLayoutState? layoutState))
+            {
+                wrappedName.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, view.RequiredNameHeight);
+                wrappedName.anchoredPosition = layoutState.NameAnchoredPosition
+                    + new Vector2(0f, 7f + Mathf.Max(0f, view.RequiredNameHeight - layoutState.NameHeight) * 0.5f);
+            }
+
             string parts = string.Empty;
             if (view.Facts.Health > 0f)
             {
@@ -928,6 +1284,100 @@ namespace InventoryUX.Runtime
                 parts += "<color=#D7A5FF>EITR " + Mathf.RoundToInt(view.Facts.Eitr) + "</color>";
             }
             stats.text = parts;
+        }
+
+        private static void AddRecipeFavoriteButton(InventoryGui gui, RecipePairView view)
+        {
+            const string controlName = FixedPrefix + "RecipeFavorite";
+            Transform row = view.Element.transform;
+            Transform host = row.Find("icon") ?? row;
+            Transform? existing = FindNamedDescendant(row, controlName);
+            GameObject control;
+            if (existing != null)
+            {
+                control = existing.gameObject;
+                control.SetActive(true);
+            }
+            else
+            {
+                control = new GameObject(controlName, typeof(RectTransform), typeof(Image), typeof(Button), typeof(UITooltip));
+                control.transform.SetParent(host, false);
+                var rect = (RectTransform)control.transform;
+                rect.anchorMin = new Vector2(1f, 1f);
+                rect.anchorMax = new Vector2(1f, 1f);
+                rect.pivot = new Vector2(0.5f, 0.5f);
+                rect.anchoredPosition = new Vector2(-2f, -2f);
+                rect.sizeDelta = new Vector2(18f, 18f);
+
+                Image image = control.GetComponent<Image>();
+                image.color = new Color(0f, 0f, 0f, 0.01f);
+                Button createdButton = control.GetComponent<Button>();
+                createdButton.targetGraphic = image;
+
+                TMP_Text label = CreateText(gui, rect, FixedPrefix + "RecipeFavoriteLabel", "★",
+                    Vector2.zero, Vector2.zero, 14f, Gold, TextAlignmentOptions.Center, true);
+                label.outlineWidth = 0.16f;
+                label.outlineColor = Color.black;
+            }
+
+            if (control.transform.parent != host)
+            {
+                control.transform.SetParent(host, false);
+            }
+            RectTransform controlRect = (RectTransform)control.transform;
+            controlRect.anchorMin = new Vector2(1f, 1f);
+            controlRect.anchorMax = new Vector2(1f, 1f);
+            controlRect.pivot = new Vector2(0.5f, 0.5f);
+            controlRect.anchoredPosition = new Vector2(-2f, -2f);
+            controlRect.sizeDelta = new Vector2(18f, 18f);
+
+            Button button = control.GetComponent<Button>();
+            button.onClick.RemoveAllListeners();
+            button.onClick.AddListener(() =>
+            {
+                ModConfig.ToggleFavoriteRecipe(GetRecipeKey(view.Recipe));
+                _orderedRecipeViews = null;
+                _cachedOrderingKey = int.MinValue;
+                ApplyCachedRecipeView(gui);
+            });
+
+            TMP_Text star = control.transform.Find(FixedPrefix + "RecipeFavoriteLabel").GetComponent<TMP_Text>();
+            star.color = view.IsFavorite ? Gold : new Color(0.75f, 0.72f, 0.65f, 0.48f);
+            UITooltip tooltip = control.GetComponent<UITooltip>();
+            tooltip.m_text = view.IsFavorite ? "Remove from Favorites" : "Pin to Favorites";
+            control.transform.SetAsLastSibling();
+        }
+
+        private static Transform? FindNamedDescendant(Transform root, string name)
+        {
+            Transform[] descendants = root.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < descendants.Length; i++)
+            {
+                if (descendants[i] != null && descendants[i].name == name) return descendants[i];
+            }
+            return null;
+        }
+
+        private static string GetRecipeKey(Recipe recipe)
+        {
+            string recipeName = recipe != null ? recipe.name : string.Empty;
+            string itemName = recipe != null && recipe.m_item != null ? recipe.m_item.gameObject.name : string.Empty;
+            return string.IsNullOrWhiteSpace(recipeName) ? itemName : recipeName + ":" + itemName;
+        }
+
+        private static void RemoveRecipeFavoriteButtons(RectTransform root)
+        {
+            if (root == null) return;
+            Transform[] descendants = root.GetComponentsInChildren<Transform>(true);
+            for (int i = descendants.Length - 1; i >= 0; i--)
+            {
+                Transform child = descendants[i];
+                if (child == null || child.name != FixedPrefix + "RecipeFavorite") continue;
+                Button? button = child.GetComponent<Button>();
+                if (button != null) button.onClick.RemoveAllListeners();
+                child.gameObject.SetActive(false);
+                UnityEngine.Object.Destroy(child.gameObject);
+            }
         }
 
         private static TMP_Text CreateText(
@@ -1207,6 +1657,174 @@ namespace InventoryUX.Runtime
             _cachedFoodStationKind = default;
         }
 
+        private sealed class RectTransformSnapshot
+        {
+            internal RectTransformSnapshot(RectTransform rect)
+            {
+                Rect = rect;
+                AnchoredPosition = rect.anchoredPosition;
+                SizeDelta = rect.sizeDelta;
+            }
+
+            internal RectTransform Rect { get; }
+            private Vector2 AnchoredPosition { get; }
+            private Vector2 SizeDelta { get; }
+
+            internal void Restore()
+            {
+                if (Rect == null) return;
+                Rect.sizeDelta = SizeDelta;
+                Rect.anchoredPosition = AnchoredPosition;
+            }
+        }
+
+        private sealed class ShiftedRectState
+        {
+            internal ShiftedRectState(RectTransform rect)
+            {
+                Rect = rect;
+                Snapshot = new RectTransformSnapshot(rect);
+                WorldPosition = rect.position;
+            }
+
+            internal RectTransform Rect { get; }
+            internal RectTransformSnapshot Snapshot { get; }
+            internal Vector3 WorldPosition { get; }
+        }
+
+        private sealed class RecipePanelLayoutState
+        {
+            internal RecipePanelLayoutState(
+                InventoryGui owner,
+                RectTransform craftingRoot,
+                RectTransform listContainer,
+                RectTransform viewport,
+                RectTransform contentRoot,
+                IReadOnlyList<RectTransform> detailRoots)
+            {
+                Owner = owner;
+                CraftingRoot = craftingRoot;
+                CraftingSnapshot = new RectTransformSnapshot(craftingRoot);
+                ListContainerSnapshot = new RectTransformSnapshot(listContainer);
+                ViewportSnapshot = new RectTransformSnapshot(viewport);
+                ContentRootSnapshot = new RectTransformSnapshot(contentRoot);
+                RectTransform? craftTab = owner.m_tabCraft != null ? owner.m_tabCraft.transform as RectTransform : null;
+                RectTransform? upgradeTab = owner.m_tabUpgrade != null ? owner.m_tabUpgrade.transform as RectTransform : null;
+                CraftTabSnapshot = craftTab != null ? new RectTransformSnapshot(craftTab) : null;
+                UpgradeTabSnapshot = upgradeTab != null ? new RectTransformSnapshot(upgradeTab) : null;
+                ModeRootWorldPosition = upgradeTab != null
+                    ? upgradeTab.TransformPoint(new Vector3(upgradeTab.rect.xMax + 5f, 0f, 0f))
+                    : Vector3.zero;
+                DetailRoots = new List<ShiftedRectState>(detailRoots.Count);
+                for (int i = 0; i < detailRoots.Count; i++)
+                {
+                    DetailRoots.Add(new ShiftedRectState(detailRoots[i]));
+                }
+            }
+
+            internal InventoryGui Owner { get; }
+            internal RectTransform CraftingRoot { get; }
+            internal List<ShiftedRectState> DetailRoots { get; }
+            internal Vector3 ModeRootWorldPosition { get; }
+            internal bool TabsCentered { get; set; }
+            private RectTransformSnapshot CraftingSnapshot { get; }
+            private RectTransformSnapshot ListContainerSnapshot { get; }
+            private RectTransformSnapshot ViewportSnapshot { get; }
+            private RectTransformSnapshot ContentRootSnapshot { get; }
+            private RectTransformSnapshot? CraftTabSnapshot { get; }
+            private RectTransformSnapshot? UpgradeTabSnapshot { get; }
+
+            internal void Restore()
+            {
+                CraftingSnapshot.Restore();
+                ListContainerSnapshot.Restore();
+                ViewportSnapshot.Restore();
+                ContentRootSnapshot.Restore();
+                CraftTabSnapshot?.Restore();
+                UpgradeTabSnapshot?.Restore();
+                for (int i = 0; i < DetailRoots.Count; i++)
+                {
+                    DetailRoots[i].Snapshot.Restore();
+                }
+            }
+        }
+
+        private sealed class RecipeRowLayoutState
+        {
+            internal RecipeRowLayoutState(RectTransform elementRect, RectTransform nameRect, TMP_Text name)
+            {
+                ElementRect = elementRect;
+                ElementSizeDelta = elementRect.sizeDelta;
+                ElementHeight = elementRect.rect.height;
+                NameRect = nameRect;
+                NameAnchorMin = nameRect.anchorMin;
+                NameAnchorMax = nameRect.anchorMax;
+                NamePivot = nameRect.pivot;
+                NameAnchoredPosition = nameRect.anchoredPosition;
+                NameSizeDelta = nameRect.sizeDelta;
+                NameHeight = nameRect.rect.height;
+                Name = name;
+                WrappingMode = name.textWrappingMode;
+                OverflowMode = name.overflowMode;
+                RaycastTarget = name.raycastTarget;
+            }
+
+            internal RectTransform ElementRect { get; }
+            internal float ElementHeight { get; }
+            internal RectTransform NameRect { get; }
+            internal float NameHeight { get; }
+            internal Vector2 NameAnchoredPosition { get; }
+            internal TMP_Text Name { get; }
+            internal UITooltip? AddedTooltip { get; set; }
+            internal bool CapturedTooltip { get; set; }
+            internal string TooltipText { get; set; } = string.Empty;
+            private Vector2 ElementSizeDelta { get; }
+            private Vector2 NameAnchorMin { get; }
+            private Vector2 NameAnchorMax { get; }
+            private Vector2 NamePivot { get; }
+            private Vector2 NameSizeDelta { get; }
+            private TextWrappingModes WrappingMode { get; }
+            private TextOverflowModes OverflowMode { get; }
+            private bool RaycastTarget { get; }
+
+            internal void Restore()
+            {
+                if (ElementRect != null) ElementRect.sizeDelta = ElementSizeDelta;
+                if (NameRect != null)
+                {
+                    NameRect.anchorMin = NameAnchorMin;
+                    NameRect.anchorMax = NameAnchorMax;
+                    NameRect.pivot = NamePivot;
+                    NameRect.anchoredPosition = NameAnchoredPosition;
+                    NameRect.sizeDelta = NameSizeDelta;
+                }
+                if (Name != null)
+                {
+                    Name.textWrappingMode = WrappingMode;
+                    Name.overflowMode = OverflowMode;
+                    Name.raycastTarget = RaycastTarget;
+                }
+                if (AddedTooltip != null)
+                {
+                    UnityEngine.Object.Destroy(AddedTooltip);
+                }
+                else if (CapturedTooltip && Name != null)
+                {
+                    UITooltip? tooltip = Name.GetComponent<UITooltip>();
+                    if (tooltip != null) tooltip.m_text = TooltipText;
+                }
+                if (ElementRect != null)
+                {
+                    Transform? stats = ElementRect.Find(ContentPrefix + "FoodStats");
+                    if (stats != null)
+                    {
+                        stats.gameObject.SetActive(false);
+                        UnityEngine.Object.Destroy(stats.gameObject);
+                    }
+                }
+            }
+        }
+
         private sealed class RecipePairView
         {
             internal RecipePairView(object pair, GameObject element, Recipe recipe, RecipeFacts facts)
@@ -1225,6 +1843,9 @@ namespace InventoryUX.Runtime
             internal RecipeGroup Group { get; set; }
             internal int Suborder { get; set; }
             internal float Strength { get; set; }
+            internal bool IsFavorite { get; set; }
+            internal bool NameWrapped { get; set; }
+            internal float RequiredNameHeight { get; set; }
         }
 
         private sealed class FixedControls

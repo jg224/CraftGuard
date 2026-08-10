@@ -6,7 +6,11 @@
 - Adds cached search to every organized Hammer tab.
 - Adds persistent middle-click favorites in a dedicated section pinned to the top of each organized Hammer tab.
 - Adds a clear no-results message when a Hammer search has no unlocked matches.
-- Adds optional PlantEverything support that groups its documented custom plants in a separate `Custom Plants` section.
+- Adds persistent recipe favorites with an in-row star and a dedicated section pinned to the top of crafting-station lists.
+- Widens crafting-station recipe lists, keeps names inside a fixed text area, wraps long names, and shows full names on hover.
+- Centers the Craft and Upgrade tabs over the widened recipe list while leaving the view controls in place.
+- Adds optional PlantEverything support with a dedicated `Plant Everything` section ordered as Misc., Bushes, and Trees.
+- Organizes the Cultivator's vanilla actions and plants into Cultivate/Grass, crops, and trees while preserving its independent Default/Mod View setting.
 
 ## 0.2.6 - 2026-08-09
 

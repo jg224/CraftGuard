@@ -78,6 +78,7 @@ namespace InventoryUX.Runtime
         private static int _cleanedGeneratedBackgroundHudId = int.MinValue;
         private static GameObject? _persistentHammerSearch;
         private static TMP_InputField? _hammerSearchInput;
+        private static Image? _hammerSearchBackground;
         private static int _hammerSearchHudId = int.MinValue;
         private static string _hammerSearchText = string.Empty;
         private static string _hammerSearchQuery = string.Empty;
@@ -606,7 +607,9 @@ namespace InventoryUX.Runtime
             int visibleRows = Mathf.Clamp(Mathf.Max(minimumRows, idealGroupRows), 1, ShelfRows);
             List<int>? materialRowSizes = category == Piece.PieceCategory.BuildingWorkbench
                 ? BuildMaterialRowSizes(labels)
-                : null;
+                : category == Piece.PieceCategory.Misc && HasCultivatorGroups(labels)
+                    ? BuildCultivatorRowSizes(labels, subgroups)
+                    : null;
             if (materialRowSizes != null) visibleRows = materialRowSizes.Count;
             float spacing = hud.m_pieceIconSpacing;
             float rowPitch = ShelfRowPitch(hud, visibleRows);
@@ -702,6 +705,12 @@ namespace InventoryUX.Runtime
             {
                 return false;
             }
+            if (category == Piece.PieceCategory.Misc
+                && (string.Equals(Normalize(labels[index]), "vanilla", StringComparison.Ordinal)
+                    || string.Equals(Normalize(labels[index]), "planteverything", StringComparison.Ordinal)))
+            {
+                return subgroups[index - 1] != subgroups[index];
+            }
             return category == Piece.PieceCategory.BuildingWorkbench
                 && subgroups[index - 1] != subgroups[index];
         }
@@ -730,6 +739,65 @@ namespace InventoryUX.Runtime
                 cursor = groupEnd;
             }
             return sizes;
+        }
+
+        private static bool HasCultivatorGroups(string[] labels)
+        {
+            for (int i = 0; i < labels.Length; i++)
+            {
+                string normalized = Normalize(labels[i]);
+                if (normalized == "vanilla" || normalized == "planteverything") return true;
+            }
+            return false;
+        }
+
+        private static List<int> BuildCultivatorRowSizes(string[] labels, int[] subgroups)
+        {
+            var sizes = new List<int>();
+            int cursor = 0;
+            while (cursor < labels.Length)
+            {
+                string label = labels[cursor];
+                int labelEnd = cursor + 1;
+                while (labelEnd < labels.Length
+                    && string.Equals(label, labels[labelEnd], StringComparison.Ordinal))
+                {
+                    labelEnd++;
+                }
+
+                string normalized = Normalize(label);
+                if (normalized != "vanilla" && normalized != "planteverything")
+                {
+                    AddBalancedRowSizes(sizes, labelEnd - cursor);
+                    cursor = labelEnd;
+                    continue;
+                }
+
+                while (cursor < labelEnd)
+                {
+                    int subgroup = subgroups[cursor];
+                    int subgroupEnd = cursor + 1;
+                    while (subgroupEnd < labelEnd && subgroups[subgroupEnd] == subgroup)
+                    {
+                        subgroupEnd++;
+                    }
+                    AddBalancedRowSizes(sizes, subgroupEnd - cursor);
+                    cursor = subgroupEnd;
+                }
+            }
+            return sizes;
+        }
+
+        private static void AddBalancedRowSizes(List<int> sizes, int count)
+        {
+            int rows = Mathf.CeilToInt(count / (float)ShelfColumns);
+            int remaining = count;
+            for (int row = 0; row < rows; row++)
+            {
+                int take = Mathf.CeilToInt(remaining / (float)(rows - row));
+                sizes.Add(take);
+                remaining -= take;
+            }
         }
 
         private static List<ShelfCard> BuildShelfCards(
@@ -1485,6 +1553,7 @@ namespace InventoryUX.Runtime
             Image background = searchObject.GetComponent<Image>();
             background.color = new Color(0.20f, 0.20f, 0.20f, 0.70f);
             background.raycastTarget = true;
+            _hammerSearchBackground = background;
             AddRectBorder(searchRect, new Color(0.68f, 0.50f, 0.25f, 0.68f));
 
             UITooltip tooltip = searchObject.GetComponent<UITooltip>();
@@ -1525,9 +1594,21 @@ namespace InventoryUX.Runtime
             input.caretColor = new Color(0.84f, 0.61f, 0.26f, 1f);
             input.selectionColor = new Color(0.25f, 0.55f, 0.82f, 0.55f);
             input.SetTextWithoutNotify(_hammerSearchText);
-            input.onSelect.AddListener(_ => _hammerSearchHasFocus = true);
-            input.onDeselect.AddListener(_ => _hammerSearchHasFocus = false);
-            input.onEndEdit.AddListener(_ => _hammerSearchHasFocus = false);
+            input.onSelect.AddListener(_ =>
+            {
+                _hammerSearchHasFocus = true;
+                UpdateHammerSearchFocusAppearance();
+            });
+            input.onDeselect.AddListener(_ =>
+            {
+                _hammerSearchHasFocus = false;
+                UpdateHammerSearchFocusAppearance();
+            });
+            input.onEndEdit.AddListener(_ =>
+            {
+                _hammerSearchHasFocus = false;
+                UpdateHammerSearchFocusAppearance();
+            });
             input.onValueChanged.AddListener(value =>
             {
                 string nextValue = value ?? string.Empty;
@@ -1536,6 +1617,7 @@ namespace InventoryUX.Runtime
                 _hammerSearchQuery = HammerPieceSearch.Normalize(nextValue);
                 RefreshHammerList(hud);
                 _hammerSearchHasFocus = input != null && input.isFocused;
+                UpdateHammerSearchFocusAppearance();
             });
 
             var clearObject = new GameObject(
@@ -1574,6 +1656,15 @@ namespace InventoryUX.Runtime
             _persistentHammerSearch = searchObject;
             _hammerSearchInput = input;
             _hammerSearchHudId = hudInstanceId;
+            UpdateHammerSearchFocusAppearance();
+        }
+
+        private static void UpdateHammerSearchFocusAppearance()
+        {
+            if (_hammerSearchBackground == null) return;
+            _hammerSearchBackground.color = _hammerSearchHasFocus
+                ? new Color(0.23f, 0.48f, 0.70f, 0.88f)
+                : new Color(0.20f, 0.20f, 0.20f, 0.70f);
         }
 
         private static TextMeshProUGUI CreateHammerSearchText(
@@ -1612,6 +1703,7 @@ namespace InventoryUX.Runtime
             {
                 _hammerSearchHasFocus = false;
                 _hammerSearchInput.DeactivateInputField();
+                UpdateHammerSearchFocusAppearance();
             }
             _persistentHammerSearch.SetActive(visible);
             if (visible) _persistentHammerSearch.transform.SetAsLastSibling();
@@ -1668,9 +1760,9 @@ namespace InventoryUX.Runtime
             rect.anchorMax = new Vector2(0f, 1f);
             rect.pivot = new Vector2(0.5f, 0.5f);
             rect.anchoredPosition = new Vector2(
-                (CategoryColumns + (GridWidth - CategoryColumns) * 0.5f) * hud.m_pieceIconSpacing,
+                GridWidth * 0.5f * hud.m_pieceIconSpacing,
                 -GridHeight * hud.m_pieceIconSpacing * 0.45f);
-            rect.sizeDelta = new Vector2((GridWidth - CategoryColumns) * hud.m_pieceIconSpacing, 42f);
+            rect.sizeDelta = new Vector2(GridWidth * hud.m_pieceIconSpacing, 42f);
 
             TextMeshProUGUI text = _hammerNoResults.GetComponent<TextMeshProUGUI>();
             text.text = "No matching unlocked pieces";
@@ -2180,6 +2272,7 @@ namespace InventoryUX.Runtime
             }
             _persistentHammerSearch = null;
             _hammerSearchInput = null;
+            _hammerSearchBackground = null;
             _hammerSearchHudId = int.MinValue;
             _hammerSearchText = string.Empty;
             _hammerSearchQuery = string.Empty;
