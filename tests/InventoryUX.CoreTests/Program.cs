@@ -16,6 +16,7 @@ namespace InventoryUX.CoreTests
                 TypeClassificationUsesGameMetadata,
                 FoodStationGroupingUsesNutritionStats,
                 FoodPrepUsesFeastGroup,
+                FishingBaitGetsBottomFoodGroup,
                 FeastStrengthUsesTotalNutrition,
                 MeadStationGroupingUsesEffectType,
                 LaterBiomesRenderFirst,
@@ -101,6 +102,18 @@ namespace InventoryUX.CoreTests
                 Array.Empty<string>(), 65, 65, 25, 0, true);
             Equal(155f, FoodClassifier.Strength(feast),
                 "Feasts should sort greatest-to-lowest using combined HP, Stamina, and Eitr");
+        }
+
+        private static void FishingBaitGetsBottomFoodGroup()
+        {
+            RecipeFacts bait = Facts("FishingBaitCold", "Cold Fishing Bait x20", "Consumable", "None", "Tuna");
+            RecipeGroup cauldronGroup = RecipeClassifier.GetFoodGroup(bait, FoodGroupingMode.Stat);
+            RecipeGroup foodPrepGroup = RecipeClassifier.GetFoodPrepGroup(bait, FoodGroupingMode.Stat);
+
+            Equal("Bait", cauldronGroup.Label, "Cauldron fishing bait group");
+            Equal(5, cauldronGroup.Order, "Cauldron fishing bait should render after food groups");
+            Equal("Bait", foodPrepGroup.Label, "Food prep fishing bait group");
+            Equal(5, foodPrepGroup.Order, "Food prep fishing bait should render after feasts");
         }
 
         private static void MeadStationGroupingUsesEffectType()

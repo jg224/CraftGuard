@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.6 - 2026-08-09
+
+- Adds a dedicated Bait section at the bottom of food-station Stat views.
+
 ## 0.2.5 - 2026-08-09
 
 - Removes the client-side/source footer from the Thunderstore Details page.
