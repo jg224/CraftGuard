@@ -67,6 +67,18 @@ namespace InventoryUX.Core
 
     internal static class PlantEverythingClassifier
     {
+        private static readonly HashSet<string> BushPrefabIds = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "raspberrybush", "blueberrybush", "cloudberrybush",
+            "bush01", "bush01heath", "bush02en", "shrub2", "shrub2heath"
+        };
+
+        private static readonly HashSet<string> TreePrefabIds = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "ancientsapling", "yggasapling", "autumnbirchsapling", "ashwoodsapling",
+            "beechsmall1", "firtreesmall", "firtreesmalldead", "yggashootsmall1"
+        };
+
         private static readonly HashSet<string> CustomPlantPrefabIds = new HashSet<string>(StringComparer.Ordinal)
         {
             "raspberrybush", "blueberrybush", "cloudberrybush",
@@ -81,12 +93,51 @@ namespace InventoryUX.Core
 
         internal static bool IsCustomPlant(string? prefabId)
         {
+            return CustomPlantPrefabIds.Contains(NormalizePrefabId(prefabId));
+        }
+
+        internal static int GetSubgroup(string? prefabId)
+        {
+            string normalized = NormalizePrefabId(prefabId);
+            if (!CustomPlantPrefabIds.Contains(normalized)) return -1;
+            if (BushPrefabIds.Contains(normalized)) return 1;
+            if (TreePrefabIds.Contains(normalized)) return 2;
+            return 0;
+        }
+
+        private static string NormalizePrefabId(string? prefabId)
+        {
             string normalized = HammerPieceSearch.Normalize(prefabId);
             if (normalized.EndsWith("clone", StringComparison.Ordinal))
             {
                 normalized = normalized.Substring(0, normalized.Length - "clone".Length);
             }
-            return CustomPlantPrefabIds.Contains(normalized);
+            return normalized;
+        }
+    }
+
+    internal static class VanillaCultivatorClassifier
+    {
+        internal static int GetSubgroup(string? searchableText)
+        {
+            string normalized = HammerPieceSearch.Normalize(searchableText);
+            if (ContainsAny(normalized, "cultivate", "replant", "grass")) return 0;
+            if (ContainsAny(normalized,
+                    "saplingbeech", "saplingfir", "saplingpine", "saplingbirch", "saplingoak",
+                    "beechsapling", "firsapling", "pinesapling", "birchsapling", "oaksapling"))
+            {
+                return 2;
+            }
+            return 1;
+        }
+
+        private static bool ContainsAny(string value, params string[] markers)
+        {
+            for (int i = 0; i < markers.Length; i++)
+            {
+                if (value.IndexOf(markers[i], StringComparison.Ordinal) >= 0) return true;
+            }
+            return false;
         }
     }
 }

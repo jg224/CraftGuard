@@ -13,7 +13,7 @@
 
 CraftIndex is a client-side Valheim mod that turns crowded Hammer and crafting menus into readable, progression-aware interfaces. It changes presentation only: recipes, resource costs, unlocks, character progression, and world data remain untouched.
 
-![CraftIndex organized Hammer crafting tab](docs/images/hammer-crafting.png)
+![CraftIndex organized Hammer and crafting-station menus](docs/images/craftindex-overview.png)
 
 ## Highlights
 
@@ -25,12 +25,13 @@ CraftIndex is a client-side Valheim mod that turns crowded Hammer and crafting m
 - Groups Building by Wood, Core Wood, Darkwood, and Ashwood, with natural beam, floor, wall, roof, and utility ordering.
 - Groups Furniture by function while sorting content by biome progression.
 - Adds `Default`, `Type`/`Stat`, and `Biome` views to crafting stations.
-- Adds a fixed recipe search field with one-click clearing.
+- Adds a fixed recipe search field with one-click clearing and persistent recipe favorites.
+- Widens the recipe list, wraps long names inside a fixed text area, and shows full names on hover.
 - Shows readable HP, Stamina, and Eitr values for meals and feasts.
 - Resolves prepared-food values from their final edible result, avoiding misleading dough or uncooked-item stats.
 - Keeps every view spoiler-safe by organizing only content Valheim has already made available to the player.
 - Supports modded pieces and recipes through stable fallback groups.
-- Detects PlantEverything's documented custom cultivator plants and places them in a separate `Custom Plants` section without requiring PlantEverything.
+- Detects PlantEverything's documented custom cultivator plants and places them in an organized `Plant Everything` section without requiring PlantEverything.
 
 ## Performance
 
@@ -88,6 +89,7 @@ CraftIndex generates `BepInEx/config/com.inventoryux.valheim.cfg` on first launc
 | `Hammer.OrganizeHeavyBuilding` | `true` | Organizes heavy building pieces |
 | `Hammer.OrganizeFurniture` | `true` | Organizes furniture pieces |
 | `CraftingUI.OrganizeRecipes` | `true` | Enables station views and search |
+| `CraftingUI.FavoriteRecipes` | empty | Stores recipes toggled with the row star; managed in-game |
 | `Diagnostics.WriteDataInventoryOnStartup` | `false` | Writes a one-time loaded-content CSV |
 
 The diagnostic CSV is written to `BepInEx/config/CraftIndex/loaded-data-inventory.csv`. It may contain names for all loaded content, so it is disabled by default and is never rendered in the UI.

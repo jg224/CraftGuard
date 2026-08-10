@@ -17,10 +17,12 @@ namespace InventoryUX.Runtime
             new Dictionary<long, HammerPieceMetadata>();
         private static readonly Dictionary<long, CategorySortState> SortStateByTableCategory =
             new Dictionary<long, CategorySortState>();
+        private static readonly HashSet<int> CultivatorPieceIds = new HashSet<int>();
 
         internal static bool ReorderAvailablePieces(PieceTable table)
         {
             var available = (List<List<Piece>>)AvailablePiecesField.GetValue(table);
+            TrackCultivatorPieces(table, available);
             bool changed = false;
             changed |= Reorder(table, available, Piece.PieceCategory.Misc, true);
             changed |= Reorder(table, available, Piece.PieceCategory.Crafting, ModConfig.OrganizeCrafting.Value);
@@ -35,6 +37,7 @@ namespace InventoryUX.Runtime
             LabelsByPieceCategory.Clear();
             MetadataByPieceCategory.Clear();
             SortStateByTableCategory.Clear();
+            CultivatorPieceIds.Clear();
         }
 
         internal static string? GetLabel(Piece piece, Piece.PieceCategory category)
@@ -279,8 +282,13 @@ namespace InventoryUX.Runtime
 
             string id = SearchText(piece);
             string components = ComponentNames(piece);
-            if (PlantEverythingClassifier.IsCustomPlant(piece.gameObject.name))
-                return new PieceGroup("Custom Plants", 6, 0);
+            if (CultivatorPieceIds.Contains(piece.GetInstanceID()))
+            {
+                int plantEverythingSubgroup = PlantEverythingClassifier.GetSubgroup(piece.gameObject.name);
+                if (plantEverythingSubgroup >= 0)
+                    return new PieceGroup("Plant Everything", 1, plantEverythingSubgroup);
+                return new PieceGroup("Vanilla", 0, VanillaCultivatorClassifier.GetSubgroup(id));
+            }
             if (ContainsAny(id, "cartography", "maptable"))
                 return new PieceGroup("Utility", 5, 0);
             int travelOrder = HammerProgressionSorter.MiscTravelOrder(id);
@@ -305,6 +313,38 @@ namespace InventoryUX.Runtime
                     "bonepile", "logstack", "haystack"))
                 return new PieceGroup("Resources", 4, 0);
             return new PieceGroup("Utility", 5, 0);
+        }
+
+        private static void TrackCultivatorPieces(PieceTable table, List<List<Piece>> available)
+        {
+            if (table == null || table.gameObject == null
+                || !Normalize(table.gameObject.name).Contains("cultivator"))
+            {
+                return;
+            }
+
+            int categoryIndex = (int)Piece.PieceCategory.Misc;
+            if (categoryIndex < 0 || categoryIndex >= available.Count || available[categoryIndex] == null)
+            {
+                return;
+            }
+
+            bool added = false;
+            List<Piece> pieces = available[categoryIndex];
+            for (int i = 0; i < pieces.Count; i++)
+            {
+                Piece piece = pieces[i];
+                if (piece == null || !CultivatorPieceIds.Add(piece.GetInstanceID())) continue;
+                long key = CacheKey(piece.GetInstanceID(), Piece.PieceCategory.Misc);
+                MetadataByPieceCategory.Remove(key);
+                LabelsByPieceCategory.Remove(key);
+                added = true;
+            }
+
+            if (added)
+            {
+                SortStateByTableCategory.Remove(CacheKey(table.GetInstanceID(), Piece.PieceCategory.Misc));
+            }
         }
 
         private static PieceGroup ClassifyBuilding(Piece piece, bool heavy)

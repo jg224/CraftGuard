@@ -197,6 +197,8 @@ namespace InventoryUX.CoreTests
             string added = FavoritePiecePreferences.Toggle("piece_wall", "piece_floor");
             Equal("piecefloor;piecewall", added, "Favorites serialize deterministically");
             Equal("piecewall", FavoritePiecePreferences.Toggle(added, "piece_floor"), "Favorite toggles off");
+            Equal(string.Empty, FavoritePiecePreferences.Toggle("piece_wall", "piece_wall"),
+                "The final favorite can be removed");
         }
 
         private static void PlantEverythingPiecesUseCustomPlantDetection()
@@ -204,6 +206,13 @@ namespace InventoryUX.CoreTests
             Equal(true, PlantEverythingClassifier.IsCustomPlant("RaspberryBush"), "PlantEverything berry bush");
             Equal(true, PlantEverythingClassifier.IsCustomPlant("PE_VineAsh_sapling(Clone)"), "PlantEverything vine clone");
             Equal(false, PlantEverythingClassifier.IsCustomPlant("sapling_carrot"), "Vanilla crop stays in its normal group");
+            Equal(0, PlantEverythingClassifier.GetSubgroup("PickableThistle"), "PlantEverything misc plants lead the group");
+            Equal(1, PlantEverythingClassifier.GetSubgroup("RaspberryBush"), "PlantEverything bushes have their own subgroup");
+            Equal(2, PlantEverythingClassifier.GetSubgroup("AncientSapling"), "PlantEverything trees have their own subgroup");
+            Equal(0, VanillaCultivatorClassifier.GetSubgroup("$piece_cultivate"), "Cultivate leads vanilla plants");
+            Equal(0, VanillaCultivatorClassifier.GetSubgroup("$piece_grass"), "Grass leads vanilla plants");
+            Equal(1, VanillaCultivatorClassifier.GetSubgroup("sapling_carrot"), "Vanilla crops stay together");
+            Equal(2, VanillaCultivatorClassifier.GetSubgroup("sapling_beech"), "Vanilla trees have their own subgroup");
         }
 
         private static void MiscShelfSmokeTestCompletesAllRows()
