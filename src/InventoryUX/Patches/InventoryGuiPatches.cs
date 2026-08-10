@@ -95,6 +95,22 @@ namespace InventoryUX.Patches
         }
     }
 
+    [HarmonyPatch(typeof(InventoryGui))]
+    internal static class InventoryGuiRecipeTabScrollPatch
+    {
+        private static IEnumerable<System.Reflection.MethodBase> TargetMethods()
+        {
+            yield return AccessTools.Method(typeof(InventoryGui), "OnTabCraftPressed");
+            yield return AccessTools.Method(typeof(InventoryGui), "OnTabUpgradePressed");
+        }
+
+        private static void Postfix(InventoryGui __instance)
+        {
+            if (!ModConfig.Enabled.Value || !ModConfig.OrganizeRecipes.Value) return;
+            RecipeOrganizer.ResetRecipeListScrollToTop(__instance);
+        }
+    }
+
     [HarmonyPatch(typeof(InventoryGui), "OnDestroy")]
     internal static class InventoryGuiDestroyPatch
     {

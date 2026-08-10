@@ -45,10 +45,14 @@ namespace InventoryUX.ApiTests
                 RequireIntConstant(module, "PieceTable", "UpPiece", 0, 5);
                 RequireIntConstant(module, "PieceTable", "DownPiece", 0, 6);
                 RequireField(module, "InventoryGui", "m_availableRecipes");
+                RequireField(module, "InventoryGui", "m_recipeListScroll");
+                RequireField(module, "InventoryGui", "m_recipeEnsureVisible");
                 RequireFieldType(module, "InventoryGui", "m_selectedRecipe", "RecipeDataPair");
                 RequireMethod(module, "InventoryGui", "UpdateRecipeList", 1);
                 RequireMethod(module, "InventoryGui", "GetSelectedRecipeIndex", 1);
                 RequireMethod(module, "InventoryGui", "SetRecipe", 2);
+                RequireMethod(module, "InventoryGui", "OnTabCraftPressed", 0);
+                RequireMethod(module, "InventoryGui", "OnTabUpgradePressed", 0);
                 RequireMethod(module, "InventoryGui", "OnDestroy", 0);
                 RequireProperty(module, "InventoryGui/RecipeDataPair", "Recipe");
                 RequireProperty(module, "InventoryGui/RecipeDataPair", "InterfaceElement");
