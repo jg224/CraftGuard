@@ -4,7 +4,7 @@ schemaVersion = "0.0.1"
 [package]
 namespace = "jg224"
 name = "CraftIndex"
-versionNumber = "0.3.1"
+versionNumber = "0.3.2"
 description = "Organizes Valheim's Hammer and crafting-station menus."
 websiteUrl = "https://github.com/jg224/CraftIndex"
 containsNsfwContent = false

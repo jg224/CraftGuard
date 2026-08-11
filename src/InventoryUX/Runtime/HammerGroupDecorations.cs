@@ -90,6 +90,13 @@ namespace InventoryUX.Runtime
         internal static bool UseModView { get; private set; } = true;
         internal static bool IsSearchFocused => _hammerSearchHasFocus;
 
+        private static void SetHammerSearchFocused(bool focused)
+        {
+            if (_hammerSearchHasFocus == focused) return;
+            _hammerSearchHasFocus = focused;
+            SearchInputBlocker.SetHammerSearchFocused(focused);
+        }
+
         internal static bool ShouldUseModView(PieceTable table)
         {
             return table != null
@@ -1511,7 +1518,7 @@ namespace InventoryUX.Runtime
             _hammerSearchCategory = category;
             _hammerSearchText = string.Empty;
             _hammerSearchQuery = string.Empty;
-            _hammerSearchHasFocus = false;
+            SetHammerSearchFocused(false);
             if (_hammerSearchInput != null)
             {
                 _hammerSearchInput.DeactivateInputField();
@@ -1596,17 +1603,17 @@ namespace InventoryUX.Runtime
             input.SetTextWithoutNotify(_hammerSearchText);
             input.onSelect.AddListener(_ =>
             {
-                _hammerSearchHasFocus = true;
+                SetHammerSearchFocused(true);
                 UpdateHammerSearchFocusAppearance();
             });
             input.onDeselect.AddListener(_ =>
             {
-                _hammerSearchHasFocus = false;
+                SetHammerSearchFocused(false);
                 UpdateHammerSearchFocusAppearance();
             });
             input.onEndEdit.AddListener(_ =>
             {
-                _hammerSearchHasFocus = false;
+                SetHammerSearchFocused(false);
                 UpdateHammerSearchFocusAppearance();
             });
             input.onValueChanged.AddListener(value =>
@@ -1616,7 +1623,7 @@ namespace InventoryUX.Runtime
                 _hammerSearchText = nextValue;
                 _hammerSearchQuery = HammerPieceSearch.Normalize(nextValue);
                 RefreshHammerList(hud);
-                _hammerSearchHasFocus = input != null && input.isFocused;
+                SetHammerSearchFocused(input != null && input.isFocused);
                 UpdateHammerSearchFocusAppearance();
             });
 
@@ -1701,7 +1708,7 @@ namespace InventoryUX.Runtime
             bool visible = IsEnabled(category);
             if (!visible && _hammerSearchInput != null)
             {
-                _hammerSearchHasFocus = false;
+                SetHammerSearchFocused(false);
                 _hammerSearchInput.DeactivateInputField();
                 UpdateHammerSearchFocusAppearance();
             }
@@ -2249,7 +2256,7 @@ namespace InventoryUX.Runtime
 
         private static void DestroyPersistentHammerSearch()
         {
-            _hammerSearchHasFocus = false;
+            SetHammerSearchFocused(false);
             if (_hammerSearchInput != null)
             {
                 _hammerSearchInput.onValueChanged.RemoveAllListeners();

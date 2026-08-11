@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2 - 2026-08-10
+
+- Performance improvements.
+
 ## 0.3.1 - 2026-08-10
 
 - Resets the crafting-station recipe scrollbar to the top when switching between Craft and Upgrade, preventing the rebuilt list from opening midway down or appearing empty.

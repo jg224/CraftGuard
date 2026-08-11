@@ -13,7 +13,7 @@ namespace InventoryUX
         // and an old InventoryUX DLL cannot load beside CraftIndex by accident.
         internal const string PluginGuid = "com.inventoryux.valheim";
         internal const string PluginName = "CraftIndex";
-        internal const string PluginVersion = "0.3.1";
+        internal const string PluginVersion = "0.3.2";
 
         internal static ManualLogSource LogInstance { get; private set; } = null!;
         internal static Plugin Instance { get; private set; } = null!;
@@ -28,6 +28,7 @@ namespace InventoryUX
 
             _harmony = new Harmony(PluginGuid);
             _harmony.PatchAll(typeof(Plugin).Assembly);
+            SearchInputBlocker.Initialize(_harmony);
             Logger.LogInfo($"{PluginName} {PluginVersion} loaded. Undiscovered content is never rendered.");
         }
 
@@ -37,6 +38,7 @@ namespace InventoryUX
             Cleanup("Hammer sizing", HammerGridSizer.Restore);
             Cleanup("Hammer caches", HammerOrganizer.Reset);
             Cleanup("recipe UI", RecipeOrganizer.Shutdown);
+            Cleanup("search input blocker", SearchInputBlocker.Shutdown);
             Cleanup("food cache", FoodStatsResolver.Reset);
             _harmony?.UnpatchSelf();
         }
