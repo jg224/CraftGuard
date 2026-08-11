@@ -68,6 +68,13 @@ namespace InventoryUX.Runtime
         // authoritative so those patches never need to query Unity hierarchy state.
         internal static bool IsSearchFocused => _searchHasFocus;
 
+        private static void SetSearchFocused(bool focused)
+        {
+            if (_searchHasFocus == focused) return;
+            _searchHasFocus = focused;
+            SearchInputBlocker.SetRecipeSearchFocused(focused);
+        }
+
         internal static void ResetRecipeListScrollToTop(InventoryGui gui)
         {
             if (gui == null) return;
@@ -741,9 +748,9 @@ namespace InventoryUX.Runtime
             input.caretColor = Gold;
             input.selectionColor = new Color(ActiveBlue.r, ActiveBlue.g, ActiveBlue.b, 0.55f);
             TMP_InputField searchInput = input;
-            searchInput.onSelect.AddListener(_ => _searchHasFocus = true);
-            searchInput.onDeselect.AddListener(_ => _searchHasFocus = false);
-            searchInput.onEndEdit.AddListener(_ => _searchHasFocus = false);
+            searchInput.onSelect.AddListener(_ => SetSearchFocused(true));
+            searchInput.onDeselect.AddListener(_ => SetSearchFocused(false));
+            searchInput.onEndEdit.AddListener(_ => SetSearchFocused(false));
             searchInput.onValueChanged.AddListener(value =>
             {
                 string nextValue = value ?? string.Empty;
@@ -751,7 +758,7 @@ namespace InventoryUX.Runtime
 
                 _searchText = nextValue;
                 ApplyCachedRecipeView(gui);
-                _searchHasFocus = searchInput != null && searchInput.isFocused;
+                SetSearchFocused(searchInput != null && searchInput.isFocused);
             });
 
             CreateClearSearchButton(gui, searchRect, input);
@@ -822,7 +829,7 @@ namespace InventoryUX.Runtime
             }
             else
             {
-                _searchHasFocus = false;
+                SetSearchFocused(false);
                 _fixedControls.SearchInput.DeactivateInputField();
                 _fixedControls.RestoreRecipeViewport();
             }
@@ -845,7 +852,7 @@ namespace InventoryUX.Runtime
 
             FixedControls controls = _fixedControls;
             _fixedControls = null;
-            _searchHasFocus = false;
+            SetSearchFocused(false);
             Exception? failure = null;
             try
             {
@@ -904,7 +911,7 @@ namespace InventoryUX.Runtime
         {
             _searchText = string.Empty;
             _activeStationKey = string.Empty;
-            _searchHasFocus = false;
+            SetSearchFocused(false);
             ClearRecipeCache();
         }
 

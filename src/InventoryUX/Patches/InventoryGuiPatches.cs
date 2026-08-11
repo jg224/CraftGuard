@@ -26,17 +26,6 @@ namespace InventoryUX.Patches
         }
     }
 
-    [HarmonyPatch(typeof(ZInput), nameof(ZInput.GetButtonDown), new[] { typeof(string) })]
-    internal static class CraftingSearchButtonInputPatch
-    {
-        private static bool Prefix(ref bool __result)
-        {
-            if (!RecipeOrganizer.IsSearchFocused && !HammerGroupDecorations.IsSearchFocused) return true;
-            __result = false;
-            return false;
-        }
-    }
-
     [HarmonyPatch(typeof(InventoryGui), "UpdateRecipeList")]
     internal static class InventoryGuiUpdateRecipeListPatch
     {

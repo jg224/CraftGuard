@@ -46,7 +46,7 @@ Install [jg224-CraftIndex](https://thunderstore.io/c/valheim/p/jg224/CraftIndex/
 ### Manual
 
 1. Install BepInEx 5 for the Valheim client.
-2. Download `CraftIndex-0.3.1.zip` from the [latest release](https://github.com/jg224/CraftIndex/releases/latest).
+2. Download `CraftIndex-0.3.2.zip` from the [latest release](https://github.com/jg224/CraftIndex/releases/latest).
 3. Remove an older `InventoryUX.dll` if one is installed.
 4. Extract `CraftIndex.dll` into `Valheim/BepInEx/plugins/CraftIndex/`.
 5. Start Valheim.
