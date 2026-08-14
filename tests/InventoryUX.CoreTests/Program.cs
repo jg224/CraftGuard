@@ -27,6 +27,7 @@ namespace InventoryUX.CoreTests
                 FavoritePiecePreferencesAreStable,
                 PlantEverythingPiecesUseCustomPlantDetection,
                 MiscShelfSmokeTestCompletesAllRows,
+                BuildingShelfUsesFullWidth,
                 ShelfPlannerNeverOverflowsSupportedLayouts,
                 HammerTabsSortEarlyToLateWithoutAlphabeticalFallback,
                 HammerFamiliesAndVariantsStayCoherent,
@@ -288,6 +289,20 @@ namespace InventoryUX.CoreTests
             }
             if (verified < 500)
                 throw new InvalidOperationException("Shelf planner smoke test did not cover enough layouts.");
+        }
+
+        private static void BuildingShelfUsesFullWidth()
+        {
+            var labels = Enumerable.Repeat("Wood", 30).ToArray();
+            int cursor = 0;
+            for (int row = 0; row < 2; row++)
+            {
+                int take = ShelfRowPlanner.ChooseGroupRowSize(labels, cursor, 15, 2 - row);
+                Equal(15, take, "Thirty unlocked Wood pieces should use two full-width rows");
+                cursor += take;
+            }
+
+            Equal(labels.Length, cursor, "Full-width Building cells must place every unlocked piece");
         }
 
         private static void HammerTabsSortEarlyToLateWithoutAlphabeticalFallback()
