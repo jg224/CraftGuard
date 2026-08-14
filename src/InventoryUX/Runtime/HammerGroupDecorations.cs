@@ -17,13 +17,14 @@ namespace InventoryUX.Runtime
         private const int GridHeight = HammerGridDimensions.ExpandedHeight;
         private const int CategoryColumns = 3;
         private const int ShelfColumns = 15;
+        private const int BuildingShelfColumns = GridWidth;
         private const int ShelfRows = 7;
         private const float CraftingColumnPitchScale = 0.95f;
-        private const float ShelfColumnPitchScale = 0.93f;
         private const float CategoryRailScale = 0.90f;
         private const float CategoryToItemsGap = 14f;
         private const float SubgroupSpacing = 26.4f;
         private const float SubgroupLineInset = 19.8f;
+        private const float ShelfCellGap = 4f;
         private const float TileInset = 3f;
         private const float LabelHeight = 14f;
         private const float ViewControlsHeight = 76f;
@@ -212,7 +213,7 @@ namespace InventoryUX.Runtime
                 {
                     ShelfLayoutResult layout = BuildShelfLayout(hud, pieces, count, category);
                     _visualSlots = layout.Slots;
-                    _visualWidth = ShelfColumns;
+                    _visualWidth = layout.ColumnCount;
                     _visualHeight = layout.VisibleRows;
                     _repairLogicalIndex = layout.RepairIndex;
                     if (layout.RepairIndex >= 0)
@@ -582,6 +583,9 @@ namespace InventoryUX.Runtime
 
             var labels = new string[sourceIndices.Count];
             var subgroups = new int[sourceIndices.Count];
+            int columnCount = category == Piece.PieceCategory.BuildingWorkbench
+                ? BuildingShelfColumns
+                : ShelfColumns;
             int idealGroupRows = 0;
             int groupLength = 0;
             string? previousLabel = null;
@@ -600,28 +604,29 @@ namespace InventoryUX.Runtime
                 }
                 else
                 {
-                    idealGroupRows += Mathf.CeilToInt(groupLength / (float)ShelfColumns);
+                    idealGroupRows += Mathf.CeilToInt(groupLength / (float)columnCount);
                     groupLength = 1;
                 }
                 previousLabel = label;
             }
             if (groupLength > 0)
             {
-                idealGroupRows += Mathf.CeilToInt(groupLength / (float)ShelfColumns);
+                idealGroupRows += Mathf.CeilToInt(groupLength / (float)columnCount);
             }
 
-            int minimumRows = Mathf.CeilToInt(sourceIndices.Count / (float)ShelfColumns);
+            int minimumRows = Mathf.CeilToInt(sourceIndices.Count / (float)columnCount);
             int visibleRows = Mathf.Clamp(Mathf.Max(minimumRows, idealGroupRows), 1, ShelfRows);
             List<int>? materialRowSizes = category == Piece.PieceCategory.BuildingWorkbench
-                ? BuildMaterialRowSizes(labels)
+                ? BuildMaterialRowSizes(labels, columnCount)
                 : category == Piece.PieceCategory.Misc && HasCultivatorGroups(labels)
-                    ? BuildCultivatorRowSizes(labels, subgroups)
+                    ? BuildCultivatorRowSizes(labels, subgroups, columnCount)
                     : null;
             if (materialRowSizes != null) visibleRows = materialRowSizes.Count;
             float spacing = hud.m_pieceIconSpacing;
             float rowPitch = ShelfRowPitch(hud, visibleRows);
             float itemStart = CategoryRailWidth(spacing) + CategoryToItemsGap;
             float maximumAnchorX = (GridWidth - 1) * spacing;
+            float minimumColumnPitch = spacing;
 
             var slots = new int[count];
             for (int i = 0; i < slots.Length; i++) slots[i] = -1;
@@ -637,7 +642,7 @@ namespace InventoryUX.Runtime
                     : ShelfRowPlanner.ChooseGroupRowSize(
                         labels,
                         cursor,
-                        ShelfColumns,
+                        columnCount,
                         visibleRows - row);
                 rowLabels[row] = labels[cursor];
                 representatives[row] = sourceIndices[cursor];
@@ -651,11 +656,12 @@ namespace InventoryUX.Runtime
                     }
                 }
 
-                float pitch = spacing * ShelfColumnPitchScale;
+                float pitch = spacing;
                 if (take > 1)
                 {
                     float fittedPitch = (maximumAnchorX - itemStart - breakCount * SubgroupSpacing) / (take - 1);
                     pitch = Mathf.Min(pitch, fittedPitch);
+                    minimumColumnPitch = Mathf.Min(minimumColumnPitch, pitch);
                 }
 
                 int gaps = 0;
@@ -675,7 +681,7 @@ namespace InventoryUX.Runtime
                     {
                         dividers.Add(new ShelfDivider(row, x - SubgroupLineInset));
                     }
-                    slots[pieceIndex] = row * ShelfColumns + column;
+                    slots[pieceIndex] = row * columnCount + column;
                     xPositions[pieceIndex] = x;
                 }
                 cursor += take;
@@ -696,6 +702,8 @@ namespace InventoryUX.Runtime
                 dividers,
                 visibleRows,
                 rowPitch,
+                Mathf.Min(rowPitch, minimumColumnPitch),
+                columnCount,
                 repairIndex);
         }
 
@@ -722,7 +730,7 @@ namespace InventoryUX.Runtime
                 && subgroups[index - 1] != subgroups[index];
         }
 
-        private static List<int> BuildMaterialRowSizes(string[] labels)
+        private static List<int> BuildMaterialRowSizes(string[] labels, int columnCount)
         {
             var sizes = new List<int>();
             int cursor = 0;
@@ -736,7 +744,7 @@ namespace InventoryUX.Runtime
                 }
 
                 int remaining = groupEnd - cursor;
-                int rows = Mathf.CeilToInt(remaining / (float)ShelfColumns);
+                int rows = Mathf.CeilToInt(remaining / (float)columnCount);
                 for (int row = 0; row < rows; row++)
                 {
                     int take = Mathf.CeilToInt(remaining / (float)(rows - row));
@@ -758,7 +766,10 @@ namespace InventoryUX.Runtime
             return false;
         }
 
-        private static List<int> BuildCultivatorRowSizes(string[] labels, int[] subgroups)
+        private static List<int> BuildCultivatorRowSizes(
+            string[] labels,
+            int[] subgroups,
+            int columnCount)
         {
             var sizes = new List<int>();
             int cursor = 0;
@@ -775,7 +786,7 @@ namespace InventoryUX.Runtime
                 string normalized = Normalize(label);
                 if (normalized != "vanilla" && normalized != "planteverything")
                 {
-                    AddBalancedRowSizes(sizes, labelEnd - cursor);
+                    AddBalancedRowSizes(sizes, labelEnd - cursor, columnCount);
                     cursor = labelEnd;
                     continue;
                 }
@@ -788,16 +799,16 @@ namespace InventoryUX.Runtime
                     {
                         subgroupEnd++;
                     }
-                    AddBalancedRowSizes(sizes, subgroupEnd - cursor);
+                    AddBalancedRowSizes(sizes, subgroupEnd - cursor, columnCount);
                     cursor = subgroupEnd;
                 }
             }
             return sizes;
         }
 
-        private static void AddBalancedRowSizes(List<int> sizes, int count)
+        private static void AddBalancedRowSizes(List<int> sizes, int count, int columnCount)
         {
-            int rows = Mathf.CeilToInt(count / (float)ShelfColumns);
+            int rows = Mathf.CeilToInt(count / (float)columnCount);
             int remaining = count;
             for (int row = 0; row < rows; row++)
             {
@@ -1796,6 +1807,8 @@ namespace InventoryUX.Runtime
                 Image? background = root.GetComponent<Image>();
                 if (background == null) continue;
                 UIInputHandler? input = root.GetComponent<UIInputHandler>();
+                RectTransform? iconRect = root.transform.Find("icon") as RectTransform;
+                Image? iconImage = iconRect != null ? iconRect.GetComponent<Image>() : null;
                 int id = background.GetInstanceID();
                 if (!NativeBackgrounds.ContainsKey(id))
                 {
@@ -1807,6 +1820,8 @@ namespace InventoryUX.Runtime
                         background.raycastTarget,
                         (RectTransform)root.transform,
                         ((RectTransform)root.transform).sizeDelta,
+                        iconRect,
+                        iconImage,
                         input,
                         input != null && input.enabled);
                 }
@@ -1815,13 +1830,8 @@ namespace InventoryUX.Runtime
                     && i < slots.Length
                     && slots[i] >= 0
                     && i != repairIndex;
-                if (i < occupiedCount && i < slots.Length)
-                {
-                    root.SetActive(interactive);
-                }
-                Color transparent = background.color;
-                transparent.a = 0f;
-                background.color = transparent;
+                root.SetActive(interactive);
+                NativeBackgrounds[id].SetHovered(false);
                 background.raycastTarget = interactive;
                 if (input != null)
                 {
@@ -2380,20 +2390,25 @@ namespace InventoryUX.Runtime
             int occupiedCount)
         {
             int count = Math.Min(occupiedCount, icons.Count);
-            float cellScale = Mathf.Min(1f, layout.RowPitch / hud.m_pieceIconSpacing);
+            float nativeCellSize = 0f;
             for (int i = 0; i < count; i++)
             {
                 if (layout.Slots[i] < 0) continue;
-                var rect = (RectTransform)GetIconGameObject(icons[i]!).transform;
-                int row = layout.Slots[i] / ShelfColumns;
-                if (cellScale < 0.999f)
-                {
-                    // Building can require eight material rows inside the
-                    // seven-row presentation. Keep each hit target and artwork
-                    // square inside its assigned row instead of letting the
-                    // native-size cell cross a material boundary.
-                    rect.sizeDelta *= cellScale;
-                }
+                Vector2 nativeSize = ((RectTransform)GetIconGameObject(icons[i]!).transform).sizeDelta;
+                nativeCellSize = Mathf.Min(Mathf.Abs(nativeSize.x), Mathf.Abs(nativeSize.y));
+                if (nativeCellSize > 0.01f) break;
+            }
+            if (nativeCellSize <= 0.01f) nativeCellSize = hud.m_pieceIconSpacing;
+            float cellSize = Mathf.Min(
+                nativeCellSize,
+                Mathf.Max(1f, layout.CellPitch - ShelfCellGap));
+            for (int i = 0; i < count; i++)
+            {
+                if (layout.Slots[i] < 0) continue;
+                GameObject iconRoot = GetIconGameObject(icons[i]!);
+                var rect = (RectTransform)iconRoot.transform;
+                int row = layout.Slots[i] / layout.ColumnCount;
+                rect.sizeDelta = new Vector2(cellSize, cellSize);
                 rect.anchoredPosition = new Vector2(
                     layout.XPositions[i],
                     -row * layout.RowPitch);
@@ -2831,6 +2846,8 @@ namespace InventoryUX.Runtime
                 List<ShelfDivider> dividers,
                 int visibleRows,
                 float rowPitch,
+                float cellPitch,
+                int columnCount,
                 int repairIndex)
             {
                 Slots = slots;
@@ -2839,6 +2856,8 @@ namespace InventoryUX.Runtime
                 Dividers = dividers;
                 VisibleRows = visibleRows;
                 RowPitch = rowPitch;
+                CellPitch = cellPitch;
+                ColumnCount = columnCount;
                 RepairIndex = repairIndex;
             }
 
@@ -2848,6 +2867,8 @@ namespace InventoryUX.Runtime
             internal List<ShelfDivider> Dividers { get; }
             internal int VisibleRows { get; }
             internal float RowPitch { get; }
+            internal float CellPitch { get; }
+            internal int ColumnCount { get; }
             internal int RepairIndex { get; }
         }
 
@@ -2889,6 +2910,8 @@ namespace InventoryUX.Runtime
                 bool raycastTarget,
                 RectTransform rect,
                 Vector2 sizeDelta,
+                RectTransform? iconRect,
+                Image? iconImage,
                 UIInputHandler? input,
                 bool inputEnabled)
             {
@@ -2899,6 +2922,14 @@ namespace InventoryUX.Runtime
                 RaycastTarget = raycastTarget;
                 Rect = rect;
                 SizeDelta = sizeDelta;
+                IconRect = iconRect;
+                IconAnchorMin = iconRect != null ? iconRect.anchorMin : Vector2.zero;
+                IconAnchorMax = iconRect != null ? iconRect.anchorMax : Vector2.zero;
+                IconPivot = iconRect != null ? iconRect.pivot : Vector2.zero;
+                IconAnchoredPosition = iconRect != null ? iconRect.anchoredPosition : Vector2.zero;
+                IconSizeDelta = iconRect != null ? iconRect.sizeDelta : Vector2.zero;
+                IconImage = iconImage;
+                IconPreserveAspect = iconImage != null && iconImage.preserveAspect;
                 Input = input;
                 InputEnabled = inputEnabled;
             }
@@ -2909,6 +2940,14 @@ namespace InventoryUX.Runtime
             private bool RaycastTarget { get; }
             private RectTransform Rect { get; }
             private Vector2 SizeDelta { get; }
+            private RectTransform? IconRect { get; }
+            private Vector2 IconAnchorMin { get; }
+            private Vector2 IconAnchorMax { get; }
+            private Vector2 IconPivot { get; }
+            private Vector2 IconAnchoredPosition { get; }
+            private Vector2 IconSizeDelta { get; }
+            private Image? IconImage { get; }
+            private bool IconPreserveAspect { get; }
             private UIInputHandler? Input { get; }
             private bool InputEnabled { get; }
 
@@ -2916,7 +2955,7 @@ namespace InventoryUX.Runtime
             {
                 if (Image == null) return;
                 Color color = Color;
-                color.a = hovered ? Mathf.Max(Color.a, 0.62f) : 0f;
+                color.a = hovered ? Mathf.Max(Color.a, 0.62f) : Color.a;
                 Image.color = color;
             }
 
@@ -2929,6 +2968,15 @@ namespace InventoryUX.Runtime
                     Image.raycastTarget = RaycastTarget;
                 }
                 if (Rect != null) Rect.sizeDelta = SizeDelta;
+                if (IconRect != null)
+                {
+                    IconRect.anchorMin = IconAnchorMin;
+                    IconRect.anchorMax = IconAnchorMax;
+                    IconRect.pivot = IconPivot;
+                    IconRect.anchoredPosition = IconAnchoredPosition;
+                    IconRect.sizeDelta = IconSizeDelta;
+                }
+                if (IconImage != null) IconImage.preserveAspect = IconPreserveAspect;
                 if (Input != null) Input.enabled = InputEnabled;
             }
         }
